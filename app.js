@@ -1,4 +1,4 @@
-/* bondibase - Production App Logic & Real Firebase Integration */
+/* bondibase - Production App Logic (100% Firebase Firestore Data Engine) */
 
 // Blacklist of Legacy Mock/Test Handles to Completely Ignore & Hide
 const BLACKLISTED_HANDLES = new Set([
@@ -21,9 +21,10 @@ function sanitizeUsernameField(inputEl) {
   inputEl.value = clean;
 }
 
-// App State (Default: Logged Out)
+// In-Memory App State (Strictly Populated by Firebase Auth & Firestore Real-time Engine)
 let currentUser = null;
 let reviewsData = [];
+let usersMap = {};
 let followsData = {};
 let likesData = new Set();
 let activeTab = 'feed';
@@ -31,9 +32,9 @@ let selectedFormStars = 5;
 let currentModalLine = null;
 let currentProfileHandle = null;
 let activeUserListTab = 'followers';
-let authMode = 'login'; // 'login' vs 'register'
-let uploadedPhotoBase64 = null; // Base64 scaled image string
-let topZIndex = 300; // Global modal stacking z-index manager
+let authMode = 'login';
+let uploadedPhotoBase64 = null;
+let topZIndex = 300;
 
 // Spanish Months Array
 const MESES = [
@@ -43,82 +44,111 @@ const MESES = [
 
 // Initialize Storage & App
 function initApp() {
-  const storedUsersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
-  Object.keys(storedUsersMap).forEach(h => {
-    if (isBlacklistedUser(h)) {
-      delete storedUsersMap[h];
-    }
-  });
-  localStorage.setItem('bondibase_users', JSON.stringify(storedUsersMap));
-
-  reviewsData = (JSON.parse(localStorage.getItem('bondibase_reviews')) || []).filter(r => !isBlacklistedUser(r.userHandle));
-  followsData = JSON.parse(localStorage.getItem('bondibase_follows')) || {};
-  likesData = new Set(JSON.parse(localStorage.getItem('bondibase_likes')) || []);
-
-  const storedUser = localStorage.getItem('bondibase_user');
-  if (storedUser) {
-    const parsed = JSON.parse(storedUser);
-    if (isBlacklistedUser(parsed.handle)) {
-      localStorage.removeItem('bondibase_user');
-      currentUser = null;
-    } else {
-      currentUser = parsed;
-    }
-  } else {
-    currentUser = null;
-  }
-
-  renderHeaderAuth();
   setFormStars(5);
   switchTab('feed');
   setupPosterEngineListener();
 }
 
-// Listen to Firebase ready event
+// Listen to Firebase Ready Event
 window.addEventListener('firebase-ready', () => {
-  initRealtimeFeed();
   initRealtimeUsers();
+  initRealtimeFeed();
+
   if (window.auth && window.fb) {
-    window.fb.onAuthStateChanged(window.auth, (user) => {
-      if (user && !currentUser) {
+    window.fb.onAuthStateChanged(window.auth, async (user) => {
+      if (user) {
         let cleanEmailName = user.email ? user.email.split('@')[0] : 'user';
         let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-        let handle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
+        let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
         const isGoogle = user.providerData && user.providerData.some(p => p.providerId === 'google.com');
 
-        if (!isBlacklistedUser(handle)) {
-          currentUser = {
-            handle: handle,
-            email: user.email,
-            photo: user.photoURL || null,
-            bio: '',
-            isGoogleUser: isGoogle,
-            usernameChangesCount: 0,
-            lastUsernameChangeDate: null
-          };
-          localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+        if (!isBlacklistedUser(derivedHandle)) {
+          let userHandle = derivedHandle;
           
-          if (window.db && window.fb) {
+          if (usersMap[derivedHandle]) {
+            userHandle = derivedHandle;
+          } else {
+            const existingHandle = Object.keys(usersMap).find(h => usersMap[h].email === user.email);
+            if (existingHandle) userHandle = existingHandle;
+          }
+
+          const existingData = usersMap[userHandle] || {};
+
+          currentUser = {
+            handle: userHandle,
+            email: user.email,
+            photo: existingData.photo || user.photoURL || null,
+            bio: existingData.bio || '',
+            isGoogleUser: isGoogle,
+            usernameChangesCount: existingData.usernameChangesCount || 0,
+            lastUsernameChangeDate: existingData.lastUsernameChangeDate || null,
+            following: existingData.following || []
+          };
+
+          if (window.db) {
             window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), {
               handle: currentUser.handle,
               email: currentUser.email,
               photo: currentUser.photo,
-              bio: '',
+              bio: currentUser.bio,
               isGoogleUser: currentUser.isGoogleUser,
-              usernameChangesCount: 0,
-              createdAt: new Date().toISOString()
-            }, { merge: true });
+              usernameChangesCount: currentUser.usernameChangesCount,
+              createdAt: existingData.createdAt || new Date().toISOString()
+            }, { merge: true }).catch(e => console.warn(e));
           }
 
           renderHeaderAuth();
           renderMain();
         }
+      } else {
+        currentUser = null;
+        renderHeaderAuth();
+        renderMain();
       }
     });
   }
 });
 
-// Realtime Firestore Reviews Sync
+// Realtime Firestore Users & Follows Listener
+function initRealtimeUsers() {
+  if (!window.db || !window.fb) return;
+  try {
+    const q = window.fb.collection(window.db, "users");
+    window.fb.onSnapshot(q, (snapshot) => {
+      const remoteUsersMap = {};
+      const newFollowsData = {};
+
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        const handle = data.handle || docSnap.id;
+        if (!isBlacklistedUser(handle)) {
+          remoteUsersMap[handle] = data;
+          newFollowsData[handle] = Array.isArray(data.following) ? data.following.filter(h => !isBlacklistedUser(h)) : [];
+        }
+      });
+
+      usersMap = remoteUsersMap;
+      followsData = newFollowsData;
+
+      if (currentUser && usersMap[currentUser.handle]) {
+        const myData = usersMap[currentUser.handle];
+        currentUser.photo = myData.photo || currentUser.photo;
+        currentUser.bio = myData.bio != null ? myData.bio : currentUser.bio;
+        currentUser.usernameChangesCount = myData.usernameChangesCount || 0;
+        currentUser.lastUsernameChangeDate = myData.lastUsernameChangeDate || currentUser.lastUsernameChangeDate;
+        currentUser.following = myData.following || [];
+      }
+
+      renderMain();
+    }, (err) => {
+      console.warn("Firestore users sync:", err);
+    });
+  } catch (e) {
+    console.warn("Firestore users init:", e);
+  }
+}
+
+// Realtime Firestore Reviews & Likes Listener
 function initRealtimeFeed() {
   if (!window.db || !window.fb) return;
   try {
@@ -130,11 +160,20 @@ function initRealtimeFeed() {
           .filter(r => !isBlacklistedUser(r.userHandle));
         
         reviewsData = remoteRevs;
-        localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
+
+        likesData = new Set();
+        if (currentUser) {
+          reviewsData.forEach(r => {
+            if (Array.isArray(r.likedBy) && r.likedBy.includes(currentUser.handle)) {
+              likesData.add(r.id);
+            }
+          });
+        }
+
         renderMain();
       } else {
         reviewsData = [];
-        localStorage.setItem('bondibase_reviews', JSON.stringify([]));
+        likesData = new Set();
         renderMain();
       }
     }, (err) => {
@@ -142,30 +181,6 @@ function initRealtimeFeed() {
     });
   } catch (e) {
     console.warn("Firestore init info:", e);
-  }
-}
-
-// Realtime Firestore Users Sync
-function initRealtimeUsers() {
-  if (!window.db || !window.fb) return;
-  try {
-    const q = window.fb.collection(window.db, "users");
-    window.fb.onSnapshot(q, (snapshot) => {
-      const remoteUsersMap = {};
-      snapshot.docs.forEach(docSnap => {
-        const data = docSnap.data();
-        const handle = data.handle || docSnap.id;
-        if (!isBlacklistedUser(handle)) {
-          remoteUsersMap[handle] = data;
-        }
-      });
-      localStorage.setItem('bondibase_users', JSON.stringify(remoteUsersMap));
-      renderMain();
-    }, (err) => {
-      console.warn("Firestore users sync:", err);
-    });
-  } catch (e) {
-    console.warn("Firestore users init:", e);
   }
 }
 
@@ -217,7 +232,7 @@ function handlePhotoUpload(input) {
   reader.readAsDataURL(file);
 }
 
-// Change Profile Photo for Logged-In User
+// Change Profile Photo for Logged-In User directly in Firestore
 function triggerProfilePicChange() {
   document.getElementById('profilePicChangeInput').click();
 }
@@ -229,7 +244,7 @@ function handleProfilePhotoChange(input) {
 
   reader.onload = function(e) {
     const img = new Image();
-    img.onload = function() {
+    img.onload = async function() {
       const canvas = document.createElement('canvas');
       const maxDim = 160;
       let width = img.width;
@@ -254,18 +269,14 @@ function handleProfilePhotoChange(input) {
 
       const newBase64 = canvas.toDataURL('image/jpeg', 0.8);
       currentUser.photo = newBase64;
-      localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-
-      const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
-      if (usersMap[currentUser.handle]) {
-        usersMap[currentUser.handle].photo = newBase64;
-      } else {
-        usersMap[currentUser.handle] = { handle: currentUser.handle, photo: newBase64, bio: currentUser.bio || '' };
-      }
-      localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+      if (usersMap[currentUser.handle]) usersMap[currentUser.handle].photo = newBase64;
 
       if (window.db && window.fb) {
-        window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), { photo: newBase64 }, { merge: true }).catch(e => console.warn(e));
+        try {
+          await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), { photo: newBase64 }, { merge: true });
+        } catch (err) {
+          console.warn("Firestore photo update:", err);
+        }
       }
 
       renderHeaderAuth();
@@ -278,7 +289,7 @@ function handleProfilePhotoChange(input) {
   reader.readAsDataURL(file);
 }
 
-// Custom Bio Edit Modal & Handler
+// Custom Bio Edit Modal & Firestore Handler
 function openEditBioModal() {
   if (!currentUser) return;
   const bioInput = document.getElementById('bioInputText');
@@ -296,15 +307,7 @@ async function handleSaveBioSubmit(e) {
 
   const newBio = document.getElementById('bioInputText').value.trim();
   currentUser.bio = newBio;
-  localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
-  if (usersMap[currentUser.handle]) {
-    usersMap[currentUser.handle].bio = newBio;
-  } else {
-    usersMap[currentUser.handle] = { handle: currentUser.handle, bio: newBio };
-  }
-  localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+  if (usersMap[currentUser.handle]) usersMap[currentUser.handle].bio = newBio;
 
   if (window.db && window.fb) {
     try {
@@ -369,28 +372,28 @@ async function loginWithGoogle() {
       currentUser = {
         handle: handle,
         email: user.email,
-        photo: user.photoURL,
+        photo: user.photoURL || null,
         bio: '',
         isGoogleUser: true,
-        usernameChangesCount: 0
+        usernameChangesCount: 0,
+        following: []
       };
 
-      localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-      
-      const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
-      usersMap[handle] = {
+      const newUserDoc = {
         handle: currentUser.handle,
         email: currentUser.email,
         photo: currentUser.photo,
         bio: '',
         isGoogleUser: true,
         usernameChangesCount: 0,
+        following: [],
         createdAt: new Date().toISOString()
       };
-      localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+
+      usersMap[handle] = newUserDoc;
 
       if (window.db) {
-        window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), usersMap[handle], { merge: true }).catch(e => console.warn(e));
+        await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), newUserDoc, { merge: true });
       }
 
       closeAuthModal();
@@ -416,38 +419,14 @@ async function handleLoginEmailSubmit(e) {
 
   if (window.fb && window.auth) {
     try {
-      const res = await window.fb.signInWithEmailAndPassword(window.auth, email, password);
-      const user = res.user;
-      let cleanEmailName = email.split('@')[0];
-      let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-      let handle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-
-      currentUser = {
-        handle: handle,
-        email: email,
-        bio: '',
-        isGoogleUser: false,
-        usernameChangesCount: 0
-      };
+      await window.fb.signInWithEmailAndPassword(window.auth, email, password);
+      closeAuthModal();
+      return;
     } catch (err) {
-      console.warn("Firebase Auth Login fallback:", err);
-      let cleanEmailName = email.split('@')[0];
-      let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-      let handle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-      currentUser = { handle: handle, email: email, bio: '', isGoogleUser: false, usernameChangesCount: 0 };
+      console.warn("Firebase Auth Login error:", err);
+      showToast('Error al iniciar sesión. Verificá tu correo y contraseña.');
     }
-  } else {
-    let cleanEmailName = email.split('@')[0];
-    let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-    let handle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-    currentUser = { handle: handle, email: email, bio: '', isGoogleUser: false, usernameChangesCount: 0 };
   }
-
-  localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-  closeAuthModal();
-  renderHeaderAuth();
-  showToast(`Iniciaste sesión como ${currentUser.handle}`);
-  renderMain();
 }
 
 // Email Registration Handler
@@ -480,9 +459,14 @@ async function handleRegisterEmailSubmit(e) {
     return;
   }
 
+  if (usersMap[handleInput]) {
+    showToast('Ese nombre de usuario ya está registrado. Elegí otro.');
+    return;
+  }
+
   if (window.fb && window.auth) {
     try {
-      await window.fb.createUserWithEmailAndPassword(window.auth, email, password);
+      const res = await window.fb.createUserWithEmailAndPassword(window.auth, email, password);
       currentUser = {
         handle: handleInput,
         email: email,
@@ -490,53 +474,37 @@ async function handleRegisterEmailSubmit(e) {
         bio: '',
         isGoogleUser: false,
         usernameChangesCount: 0,
+        following: [],
         lastUsernameChangeDate: new Date().toISOString()
       };
+
+      const newUserDoc = {
+        handle: currentUser.handle,
+        email: currentUser.email,
+        photo: currentUser.photo,
+        bio: '',
+        isGoogleUser: false,
+        usernameChangesCount: 0,
+        following: [],
+        lastUsernameChangeDate: currentUser.lastUsernameChangeDate,
+        createdAt: new Date().toISOString()
+      };
+
+      usersMap[handleInput] = newUserDoc;
+
+      if (window.db) {
+        await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), newUserDoc, { merge: true });
+      }
+
+      closeAuthModal();
+      renderHeaderAuth();
+      showToast(`¡Cuenta registrada como ${currentUser.handle}!`);
+      renderMain();
     } catch (err) {
-      console.warn("Firebase Auth Register fallback:", err);
-      currentUser = {
-        handle: handleInput,
-        email: email,
-        photo: uploadedPhotoBase64 || null,
-        bio: '',
-        isGoogleUser: false,
-        usernameChangesCount: 0,
-        lastUsernameChangeDate: new Date().toISOString()
-      };
+      console.warn("Firebase Auth Register error:", err);
+      showToast('No se pudo crear la cuenta. Verifica que el correo no esté en uso.');
     }
-  } else {
-    currentUser = {
-      handle: handleInput,
-      email: email,
-      photo: uploadedPhotoBase64 || null,
-      bio: '',
-      isGoogleUser: false,
-      usernameChangesCount: 0,
-      lastUsernameChangeDate: new Date().toISOString()
-    };
   }
-
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
-  usersMap[currentUser.handle] = {
-    handle: currentUser.handle,
-    email: currentUser.email,
-    photo: currentUser.photo,
-    bio: '',
-    isGoogleUser: false,
-    usernameChangesCount: 0,
-    lastUsernameChangeDate: currentUser.lastUsernameChangeDate
-  };
-  localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
-
-  if (window.db && window.fb) {
-    window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), usersMap[currentUser.handle], { merge: true }).catch(e => console.warn(e));
-  }
-
-  localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-  closeAuthModal();
-  renderHeaderAuth();
-  showToast(`¡Cuenta registrada como ${currentUser.handle}!`);
-  renderMain();
 }
 
 // FORGOT & CHANGE PASSWORD PROCEDURES
@@ -565,9 +533,6 @@ async function handleSendResetPasswordEmail(e) {
       return;
     }
   }
-
-  showToast(`Enlace enviado a ${email}. Revisa tu bandeja de entrada o la carpeta de SPAM.`);
-  closeForgotPasswordModal();
 }
 
 function openChangePasswordModal() {
@@ -589,10 +554,9 @@ async function handleSendLoggedUserPasswordReset() {
       return;
     } catch (err) {
       console.warn("Password reset error:", err);
+      showToast("Error al enviar correo de restablecimiento.");
     }
   }
-  showToast(`Enlace enviado a ${currentUser.email}. Revisa tu bandeja de entrada o la carpeta de SPAM.`);
-  closeChangePasswordModal();
 }
 
 async function handleUpdatePasswordDirectSubmit(e) {
@@ -621,9 +585,6 @@ async function handleUpdatePasswordDirectSubmit(e) {
       return;
     }
   }
-
-  showToast('Contraseña actualizada correctamente');
-  closeChangePasswordModal();
 }
 
 async function logoutUser() {
@@ -633,7 +594,6 @@ async function logoutUser() {
     } catch (e) {}
   }
   currentUser = null;
-  localStorage.removeItem('bondibase_user');
   renderHeaderAuth();
   showToast('Cerraste sesión');
   switchTab('feed');
@@ -641,7 +601,6 @@ async function logoutUser() {
 
 // Avatar HTML Renderer (Base64 Image or Initial Fallback)
 function renderAvatarHtml(handle, photoUrl, sizePx = 28) {
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
   const uData = usersMap[handle] || {};
   const finalPhoto = photoUrl || uData.photo;
   const initial = handle ? handle.replace('@', '').charAt(0).toUpperCase() : 'U';
@@ -693,7 +652,7 @@ function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replace/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
 
@@ -766,7 +725,7 @@ function getLineStats(lineaNumero) {
 }
 
 function cardHtml(l, idx) {
-  const miniPoster = miniPosterHtml(l, false);
+  const b = badgeHtml(l);
   const tag = '<span class="tag ' + l.administracion + '">' + l.administracion + '</span>';
   const stats = getLineStats(l.numero);
   
@@ -776,7 +735,7 @@ function cardHtml(l, idx) {
 
   return `
     <div class="card" onclick="showPoster(${idx})" title="Ver portada de Línea ${esc(l.numero)}">
-      ${miniPoster}
+      ${b}
       <div class="num">Línea ${esc(l.numero)}</div>
       ${tag}
       ${ratingHtml}
@@ -784,7 +743,7 @@ function cardHtml(l, idx) {
   `;
 }
 
-function miniPosterHtml(l, isClickable = true) {
+function miniPosterHtml(l) {
   if (!l) return '';
   const c = l.colores || {};
   const bg = buildBg(l, 14, 38);
@@ -795,10 +754,8 @@ function miniPosterHtml(l, isClickable = true) {
   const botContrast = getContrastColor(botColor);
   const textContrast = c.texto || botContrast;
 
-  const clickAttr = isClickable ? `onclick="openPosterByNumero('${esc(l.numero)}'); event.stopPropagation();"` : '';
-
   return `
-    <div class="review-poster-mini-card" style="background:${bg}; border-top-color:${c.borde || '#000'};" ${clickAttr} title="Ver portada de Línea ${esc(l.numero)}">
+    <div class="review-poster-mini-card" style="background:${bg}; border-top-color:${c.borde || '#000'};" onclick="openPosterByNumero('${l.numero}')" title="Ver portada de Línea ${esc(l.numero)}">
       <div class="mini-poster-tag" style="color: ${topContrast};">${esc(l.administracion)}</div>
       <div class="mini-poster-num" style="color: ${textContrast};">${esc(stripLoc(l.numero))}</div>
       <div class="mini-poster-op" style="color: ${botContrast};">${esc(l.operadora)}</div>
@@ -900,7 +857,6 @@ function applyFilters() {
 // User Search in Feed Tab
 function renderUserSearchResultFeed(container, indicator, query) {
   const cleanQ = query.toLowerCase().replace(/^@/, '');
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
 
   const matchedUsers = Object.entries(usersMap).filter(([handle]) => {
     if (isBlacklistedUser(handle)) return false;
@@ -1135,12 +1091,6 @@ async function deleteUserReview(reviewId) {
   }
 
   reviewsData.splice(idx, 1);
-  localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
-
-  if (likesData.has(reviewId)) {
-    likesData.delete(reviewId);
-    localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData)));
-  }
 
   if (window.db && window.fb) {
     try {
@@ -1170,7 +1120,7 @@ async function deleteUserReview(reviewId) {
   renderMain();
 }
 
-function toggleFollowReviewAuthor(targetHandle) {
+async function toggleFollowReviewAuthor(targetHandle) {
   if (!currentUser) {
     showToast('Debés iniciar sesión para seguir usuarios');
     openAuthModal('login');
@@ -1178,18 +1128,29 @@ function toggleFollowReviewAuthor(targetHandle) {
   }
 
   const myHandle = currentUser.handle;
-  if (!followsData[myHandle]) followsData[myHandle] = [];
+  let myFollowing = [...(currentUser.following || [])];
 
-  const idx = followsData[myHandle].indexOf(targetHandle);
+  const idx = myFollowing.indexOf(targetHandle);
   if (idx !== -1) {
-    followsData[myHandle].splice(idx, 1);
+    myFollowing.splice(idx, 1);
     showToast(`Dejaste de seguir a ${targetHandle}`);
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayRemove(targetHandle)
+      }).catch(e => console.warn(e));
+    }
   } else {
-    followsData[myHandle].push(targetHandle);
+    myFollowing.push(targetHandle);
     showToast(`¡Ahora sigues a ${targetHandle}!`);
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayUnion(targetHandle)
+      }).catch(e => console.warn(e));
+    }
   }
 
-  localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+  currentUser.following = myFollowing;
+  followsData[myHandle] = myFollowing;
   renderMain();
 }
 
@@ -1252,7 +1213,7 @@ function closePosterModal() {
 
 function setupPosterEngineListener() {}
 
-// Form Stars & Review Submission
+// Form Stars & Review Submission directly to Firestore
 function setFormStars(val) {
   selectedFormStars = val;
   const spans = document.querySelectorAll('#starSelector span');
@@ -1285,40 +1246,35 @@ async function submitReview() {
     return;
   }
 
-  const existingIdx = reviewsData.findIndex(r => r.lineaNumero === currentModalLine.numero && r.userHandle === currentUser.handle);
-  let oldLikes = 0;
+  const existing = reviewsData.find(r => r.lineaNumero === currentModalLine.numero && r.userHandle === currentUser.handle);
+  const docId = existing ? existing.id : ('rev-' + Date.now());
+  const oldLikes = existing ? (existing.likes || 0) : 0;
+  const oldLikedBy = existing ? (existing.likedBy || []) : [];
 
-  if (existingIdx !== -1) {
-    oldLikes = reviewsData[existingIdx].likes || 0;
-    reviewsData.splice(existingIdx, 1);
-  }
-
-  const newReview = {
-    id: 'rev-' + Date.now(),
+  const reviewDoc = {
+    id: docId,
     lineaNumero: currentModalLine.numero,
     userHandle: currentUser.handle,
     userPhoto: currentUser.photo || null,
     stars: selectedFormStars,
     text: text,
     likes: oldLikes,
+    likedBy: oldLikedBy,
     date: new Date().toISOString().split('T')[0]
   };
 
-  reviewsData.unshift(newReview);
-  localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
-
   if (window.db && window.fb) {
     try {
-      await window.fb.setDoc(window.fb.doc(window.db, "reviews", newReview.id), newReview);
+      await window.fb.setDoc(window.fb.doc(window.db, "reviews", docId), reviewDoc);
     } catch (e) {
       console.warn("Firestore sync:", e);
     }
   }
 
-  if (existingIdx !== -1) {
+  if (existing) {
     showToast('Reseña actualizada (se reemplazó tu publicación anterior)');
   } else {
-    showToast('¡Reseña publicada con éxito en tu bitácora!');
+    showToast('¡Reseña publicada con éxito en la comunidad!');
   }
 
   const stats = getLineStats(currentModalLine.numero);
@@ -1342,25 +1298,35 @@ function renderLineReviewsList(lineaNumero) {
   container.innerHTML = lineRevs.map(r => renderReviewCardItem(r)).join('');
 }
 
-function toggleLikeReview(reviewId) {
+async function toggleLikeReview(reviewId) {
+  if (!currentUser) {
+    showToast('Debés iniciar sesión para dar me gusta');
+    openAuthModal('login');
+    return;
+  }
+
   const rev = reviewsData.find(r => r.id === reviewId);
   if (!rev) return;
 
-  if (likesData.has(reviewId)) {
-    likesData.delete(reviewId);
-    rev.likes = Math.max(0, (rev.likes || 1) - 1);
+  const likedByArr = Array.isArray(rev.likedBy) ? [...rev.likedBy] : [];
+  const myHandle = currentUser.handle;
+  const isLiked = likedByArr.includes(myHandle);
+
+  if (isLiked) {
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "reviews", reviewId), {
+        likes: Math.max(0, (rev.likes || 1) - 1),
+        likedBy: window.fb.arrayRemove(myHandle)
+      }).catch(e => console.warn(e));
+    }
   } else {
-    likesData.add(reviewId);
-    rev.likes = (rev.likes || 0) + 1;
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "reviews", reviewId), {
+        likes: (rev.likes || 0) + 1,
+        likedBy: window.fb.arrayUnion(myHandle)
+      }).catch(e => console.warn(e));
+    }
   }
-
-  localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData)));
-  localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
-
-  if (currentModalLine) {
-    renderLineReviewsList(currentModalLine.numero);
-  }
-  renderMain();
 }
 
 // Auth Modal Logic
@@ -1397,7 +1363,6 @@ function openUserProfile(handle) {
   }
   currentProfileHandle = handle;
 
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
   const userData = usersMap[handle] || {};
 
   document.getElementById('profileHandle').textContent = handle;
@@ -1549,53 +1514,35 @@ async function handleUsernameEditSubmit(e) {
     return;
   }
 
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
   if (usersMap[newHandle]) {
     showToast(`El usuario ${newHandle} ya existe. Elegí otro.`);
     return;
   }
 
   const uData = usersMap[oldHandle] || {};
-  delete usersMap[oldHandle];
-  
   const currentCount = currentUser.usernameChangesCount || 0;
   
-  usersMap[newHandle] = {
+  const updatedUserDoc = {
     ...uData,
     handle: newHandle,
     usernameChangesCount: currentCount + 1,
     lastUsernameChangeDate: new Date().toISOString()
   };
-  localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
 
   currentUser.handle = newHandle;
   currentUser.usernameChangesCount = currentCount + 1;
-  currentUser.lastUsernameChangeDate = new Date().toISOString();
-  localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-
-  reviewsData.forEach(r => {
-    if (r.userHandle === oldHandle) {
-      r.userHandle = newHandle;
-    }
-  });
-  localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
-
-  if (followsData[oldHandle]) {
-    followsData[newHandle] = followsData[oldHandle];
-    delete followsData[oldHandle];
-  }
-  Object.keys(followsData).forEach(h => {
-    if (Array.isArray(followsData[h])) {
-      const idx = followsData[h].indexOf(oldHandle);
-      if (idx !== -1) followsData[h][idx] = newHandle;
-    }
-  });
-  localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+  currentUser.lastUsernameChangeDate = updatedUserDoc.lastUsernameChangeDate;
 
   if (window.db && window.fb) {
     try {
-      await window.fb.setDoc(window.fb.doc(window.db, "users", newHandle), usersMap[newHandle]);
+      await window.fb.setDoc(window.fb.doc(window.db, "users", newHandle), updatedUserDoc);
       await window.fb.deleteDoc(window.fb.doc(window.db, "users", oldHandle));
+
+      reviewsData.forEach(async (r) => {
+        if (r.userHandle === oldHandle) {
+          await window.fb.updateDoc(window.fb.doc(window.db, "reviews", r.id), { userHandle: newHandle });
+        }
+      });
     } catch (err) {
       console.warn("Firestore rename:", err);
     }
@@ -1608,43 +1555,7 @@ async function handleUsernameEditSubmit(e) {
   renderMain();
 }
 
-// Cascading Deletion of User Account & Content
-async function deleteUserAccount(handle) {
-  if (!handle) return;
-
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
-  delete usersMap[handle];
-  localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
-
-  reviewsData = reviewsData.filter(r => r.userHandle !== handle);
-  localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
-
-  delete followsData[handle];
-  Object.keys(followsData).forEach(h => {
-    if (Array.isArray(followsData[h])) {
-      followsData[h] = followsData[h].filter(item => item !== handle);
-    }
-  });
-  localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
-
-  if (window.db && window.fb) {
-    try {
-      await window.fb.deleteDoc(window.fb.doc(window.db, "users", handle));
-      const q = window.fb.query(window.fb.collection(window.db, "reviews"), window.fb.where("userHandle", "==", handle));
-      const snap = await window.fb.getDocs(q);
-      snap.forEach(async (d) => {
-        await window.fb.deleteDoc(d.ref);
-      });
-    } catch (e) {
-      console.warn("Firestore user cascade delete:", e);
-    }
-  }
-
-  showToast(`La cuenta y publicaciones de ${handle} fueron eliminadas`);
-  renderMain();
-}
-
-function toggleFollowUser() {
+async function toggleFollowUser() {
   if (!currentUser) {
     showToast('Debés iniciar sesión para seguir usuarios');
     openAuthModal('login');
@@ -1652,18 +1563,29 @@ function toggleFollowUser() {
   }
 
   const myHandle = currentUser.handle;
-  if (!followsData[myHandle]) followsData[myHandle] = [];
+  let myFollowing = [...(currentUser.following || [])];
 
-  const idx = followsData[myHandle].indexOf(currentProfileHandle);
+  const idx = myFollowing.indexOf(currentProfileHandle);
   if (idx !== -1) {
-    followsData[myHandle].splice(idx, 1);
+    myFollowing.splice(idx, 1);
     showToast(`Dejaste de seguir a ${currentProfileHandle}`);
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayRemove(currentProfileHandle)
+      }).catch(e => console.warn(e));
+    }
   } else {
-    followsData[myHandle].push(currentProfileHandle);
+    myFollowing.push(currentProfileHandle);
     showToast(`¡Ahora sigues a ${currentProfileHandle}!`);
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayUnion(currentProfileHandle)
+      }).catch(e => console.warn(e));
+    }
   }
 
-  localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+  currentUser.following = myFollowing;
+  followsData[myHandle] = myFollowing;
   openUserProfile(currentProfileHandle);
 }
 
@@ -1707,7 +1629,6 @@ function renderUserListItems() {
   const container = document.getElementById('userListItemsContainer');
   triggerFadeIn(container);
 
-  const usersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
   const listHandles = (activeUserListTab === 'followers'
     ? getFollowersList(currentProfileHandle)
     : getFollowingList(currentProfileHandle)).filter(h => !isBlacklistedUser(h));
@@ -1757,39 +1678,45 @@ function renderUserListItems() {
   }).join('');
 }
 
-function unfollowTargetUser(targetHandle) {
+async function unfollowTargetUser(targetHandle) {
   if (!currentUser) return;
   const myHandle = currentUser.handle;
 
-  if (followsData[myHandle]) {
-    const idx = followsData[myHandle].indexOf(targetHandle);
-    if (idx !== -1) {
-      followsData[myHandle].splice(idx, 1);
-      localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
-      showToast(`Dejaste de seguir a ${targetHandle}`);
-      openUserProfile(currentUser.handle);
-      openUserListModal('following');
+  let myFollowing = [...(currentUser.following || [])];
+  const idx = myFollowing.indexOf(targetHandle);
+  if (idx !== -1) {
+    myFollowing.splice(idx, 1);
+    currentUser.following = myFollowing;
+    followsData[myHandle] = myFollowing;
+
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayRemove(targetHandle)
+      }).catch(e => console.warn(e));
     }
+
+    showToast(`Dejaste de seguir a ${targetHandle}`);
+    openUserProfile(currentUser.handle);
+    openUserListModal('following');
   }
 }
 
-function removeFollowerUser(targetHandle) {
+async function removeFollowerUser(targetHandle) {
   if (!currentUser) return;
   const myHandle = currentUser.handle;
 
-  if (followsData[targetHandle]) {
-    const idx = followsData[targetHandle].indexOf(myHandle);
-    if (idx !== -1) {
-      followsData[targetHandle].splice(idx, 1);
-      localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
-      showToast(`Eliminaste a ${targetHandle} de tus seguidores`);
-      openUserProfile(currentUser.handle);
-      openUserListModal('followers');
-    }
+  if (window.db && window.fb) {
+    await window.fb.updateDoc(window.fb.doc(window.db, "users", targetHandle), {
+      following: window.fb.arrayRemove(myHandle)
+    }).catch(e => console.warn(e));
   }
+
+  showToast(`Eliminaste a ${targetHandle} de tus seguidores`);
+  openUserProfile(currentUser.handle);
+  openUserListModal('followers');
 }
 
-function toggleFollowOtherUser(targetHandle) {
+async function toggleFollowOtherUser(targetHandle) {
   if (!currentUser) {
     showToast('Debés iniciar sesión para seguir usuarios');
     openAuthModal('login');
@@ -1797,18 +1724,29 @@ function toggleFollowOtherUser(targetHandle) {
   }
 
   const myHandle = currentUser.handle;
-  if (!followsData[myHandle]) followsData[myHandle] = [];
+  let myFollowing = [...(currentUser.following || [])];
 
-  const idx = followsData[myHandle].indexOf(targetHandle);
+  const idx = myFollowing.indexOf(targetHandle);
   if (idx !== -1) {
-    followsData[myHandle].splice(idx, 1);
+    myFollowing.splice(idx, 1);
     showToast(`Dejaste de seguir a ${targetHandle}`);
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayRemove(targetHandle)
+      }).catch(e => console.warn(e));
+    }
   } else {
-    followsData[myHandle].push(targetHandle);
+    myFollowing.push(targetHandle);
     showToast(`¡Ahora sigues a ${targetHandle}!`);
+    if (window.db && window.fb) {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+        following: window.fb.arrayUnion(targetHandle)
+      }).catch(e => console.warn(e));
+    }
   }
 
-  localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+  currentUser.following = myFollowing;
+  followsData[myHandle] = myFollowing;
   renderUserListItems();
 }
 
