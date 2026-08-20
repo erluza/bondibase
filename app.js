@@ -1,4 +1,4 @@
-/* bondibase - Production App Logic (100% Firebase Firestore Data Engine) */
+/* bondibase - Production App Logic (Real-time Firebase Firestore Engine + Instant Cache) */
 
 // Blacklist of Legacy Mock/Test Handles to Completely Ignore & Hide
 const BLACKLISTED_HANDLES = new Set([
@@ -21,7 +21,7 @@ function sanitizeUsernameField(inputEl) {
   inputEl.value = clean;
 }
 
-// In-Memory App State (Strictly Populated by Firebase Auth & Firestore Real-time Engine)
+// In-Memory App State
 let currentUser = null;
 let reviewsData = [];
 let usersMap = {};
@@ -42,8 +42,36 @@ const MESES = [
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
 ];
 
-// Initialize Storage & App
+// Initialize Storage & App (Instant Load from Local Cache + Realtime Firebase Sync)
 function initApp() {
+  try {
+    const storedUsersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
+    Object.keys(storedUsersMap).forEach(h => {
+      if (isBlacklistedUser(h)) delete storedUsersMap[h];
+    });
+    usersMap = storedUsersMap;
+
+    reviewsData = (JSON.parse(localStorage.getItem('bondibase_reviews')) || []).filter(r => !isBlacklistedUser(r.userHandle));
+    followsData = JSON.parse(localStorage.getItem('bondibase_follows')) || {};
+    likesData = new Set(JSON.parse(localStorage.getItem('bondibase_likes')) || []);
+
+    const storedUser = localStorage.getItem('bondibase_user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      if (isBlacklistedUser(parsed.handle)) {
+        localStorage.removeItem('bondibase_user');
+        currentUser = null;
+      } else {
+        currentUser = parsed;
+      }
+    } else {
+      currentUser = null;
+    }
+  } catch (e) {
+    console.warn("Local storage cache load error:", e);
+  }
+
+  renderHeaderAuth();
   setFormStars(5);
   switchTab('feed');
   setupPosterEngineListener();
@@ -85,6 +113,10 @@ window.addEventListener('firebase-ready', () => {
             following: existingData.following || []
           };
 
+          try {
+            localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+          } catch(e) {}
+
           if (window.db) {
             window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), {
               handle: currentUser.handle,
@@ -102,6 +134,7 @@ window.addEventListener('firebase-ready', () => {
         }
       } else {
         currentUser = null;
+        try { localStorage.removeItem('bondibase_user'); } catch(e) {}
         renderHeaderAuth();
         renderMain();
       }
@@ -130,6 +163,11 @@ function initRealtimeUsers() {
       usersMap = remoteUsersMap;
       followsData = newFollowsData;
 
+      try {
+        localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+        localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+      } catch(e) {}
+
       if (currentUser && usersMap[currentUser.handle]) {
         const myData = usersMap[currentUser.handle];
         currentUser.photo = myData.photo || currentUser.photo;
@@ -137,6 +175,7 @@ function initRealtimeUsers() {
         currentUser.usernameChangesCount = myData.usernameChangesCount || 0;
         currentUser.lastUsernameChangeDate = myData.lastUsernameChangeDate || currentUser.lastUsernameChangeDate;
         currentUser.following = myData.following || [];
+        try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
       }
 
       renderMain();
@@ -160,6 +199,7 @@ function initRealtimeFeed() {
           .filter(r => !isBlacklistedUser(r.userHandle));
         
         reviewsData = remoteRevs;
+        try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
         likesData = new Set();
         if (currentUser) {
@@ -169,11 +209,8 @@ function initRealtimeFeed() {
             }
           });
         }
+        try { localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData))); } catch(e) {}
 
-        renderMain();
-      } else {
-        reviewsData = [];
-        likesData = new Set();
         renderMain();
       }
     }, (err) => {
@@ -232,7 +269,7 @@ function handlePhotoUpload(input) {
   reader.readAsDataURL(file);
 }
 
-// Change Profile Photo for Logged-In User directly in Firestore
+// Change Profile Photo for Logged-In User
 function triggerProfilePicChange() {
   document.getElementById('profilePicChangeInput').click();
 }
@@ -271,6 +308,11 @@ function handleProfilePhotoChange(input) {
       currentUser.photo = newBase64;
       if (usersMap[currentUser.handle]) usersMap[currentUser.handle].photo = newBase64;
 
+      try {
+        localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+        localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+      } catch(e) {}
+
       if (window.db && window.fb) {
         try {
           await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), { photo: newBase64 }, { merge: true });
@@ -289,7 +331,7 @@ function handleProfilePhotoChange(input) {
   reader.readAsDataURL(file);
 }
 
-// Custom Bio Edit Modal & Firestore Handler
+// Custom Bio Edit Modal & Handler
 function openEditBioModal() {
   if (!currentUser) return;
   const bioInput = document.getElementById('bioInputText');
@@ -308,6 +350,11 @@ async function handleSaveBioSubmit(e) {
   const newBio = document.getElementById('bioInputText').value.trim();
   currentUser.bio = newBio;
   if (usersMap[currentUser.handle]) usersMap[currentUser.handle].bio = newBio;
+
+  try {
+    localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+    localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+  } catch(e) {}
 
   if (window.db && window.fb) {
     try {
@@ -392,6 +439,11 @@ async function loginWithGoogle() {
 
       usersMap[handle] = newUserDoc;
 
+      try {
+        localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+        localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+      } catch(e) {}
+
       if (window.db) {
         await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), newUserDoc, { merge: true });
       }
@@ -466,7 +518,7 @@ async function handleRegisterEmailSubmit(e) {
 
   if (window.fb && window.auth) {
     try {
-      const res = await window.fb.createUserWithEmailAndPassword(window.auth, email, password);
+      await window.fb.createUserWithEmailAndPassword(window.auth, email, password);
       currentUser = {
         handle: handleInput,
         email: email,
@@ -491,6 +543,11 @@ async function handleRegisterEmailSubmit(e) {
       };
 
       usersMap[handleInput] = newUserDoc;
+
+      try {
+        localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+        localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+      } catch(e) {}
 
       if (window.db) {
         await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), newUserDoc, { merge: true });
@@ -594,6 +651,7 @@ async function logoutUser() {
     } catch (e) {}
   }
   currentUser = null;
+  try { localStorage.removeItem('bondibase_user'); } catch(e) {}
   renderHeaderAuth();
   showToast('Cerraste sesión');
   switchTab('feed');
@@ -652,7 +710,7 @@ function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace/>/g, '&gt;')
+    .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
 
@@ -1091,6 +1149,7 @@ async function deleteUserReview(reviewId) {
   }
 
   reviewsData.splice(idx, 1);
+  try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
   if (window.db && window.fb) {
     try {
@@ -1151,6 +1210,11 @@ async function toggleFollowReviewAuthor(targetHandle) {
 
   currentUser.following = myFollowing;
   followsData[myHandle] = myFollowing;
+  try {
+    localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+    localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+  } catch(e) {}
+
   renderMain();
 }
 
@@ -1263,6 +1327,15 @@ async function submitReview() {
     date: new Date().toISOString().split('T')[0]
   };
 
+  const existingIdx = reviewsData.findIndex(r => r.id === docId);
+  if (existingIdx !== -1) {
+    reviewsData[existingIdx] = reviewDoc;
+  } else {
+    reviewsData.unshift(reviewDoc);
+  }
+
+  try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
+
   if (window.db && window.fb) {
     try {
       await window.fb.setDoc(window.fb.doc(window.db, "reviews", docId), reviewDoc);
@@ -1313,20 +1386,35 @@ async function toggleLikeReview(reviewId) {
   const isLiked = likedByArr.includes(myHandle);
 
   if (isLiked) {
+    likesData.delete(reviewId);
+    rev.likes = Math.max(0, (rev.likes || 1) - 1);
+    rev.likedBy = likedByArr.filter(h => h !== myHandle);
+
     if (window.db && window.fb) {
       await window.fb.updateDoc(window.fb.doc(window.db, "reviews", reviewId), {
-        likes: Math.max(0, (rev.likes || 1) - 1),
+        likes: rev.likes,
         likedBy: window.fb.arrayRemove(myHandle)
       }).catch(e => console.warn(e));
     }
   } else {
+    likesData.add(reviewId);
+    rev.likes = (rev.likes || 0) + 1;
+    rev.likedBy = [...likedByArr, myHandle];
+
     if (window.db && window.fb) {
       await window.fb.updateDoc(window.fb.doc(window.db, "reviews", reviewId), {
-        likes: (rev.likes || 0) + 1,
+        likes: rev.likes,
         likedBy: window.fb.arrayUnion(myHandle)
       }).catch(e => console.warn(e));
     }
   }
+
+  try {
+    localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData)));
+    localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
+  } catch(e) {}
+
+  renderMain();
 }
 
 // Auth Modal Logic
