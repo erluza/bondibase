@@ -1543,14 +1543,14 @@ function closePosterModal() {
 
 function setupPosterEngineListener() {}
 
-// Form Stars & Review Submission (Half-Star Precision System)
+// Form Stars & Review Submission (Half-Star Precision System, Min 1.0)
 function getStarValueFromEvent(e, starIndex) {
   const rect = e.currentTarget.getBoundingClientRect();
   const clientX = e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : (rect.left + rect.width));
   const clickX = clientX - rect.left;
   const isLeftHalf = clickX < (rect.width / 2);
   let val = isLeftHalf ? (starIndex - 0.5) : starIndex;
-  return Math.max(0.5, Math.min(5, val));
+  return Math.max(1.0, Math.min(5, val));
 }
 
 function handleStarClick(e, starIndex) {
@@ -1568,19 +1568,20 @@ function resetStarHover() {
 }
 
 function renderStarSelectorState(val) {
+  const safeVal = Math.max(1.0, Math.min(5, val));
   const displayEl = document.getElementById('starRatingValueDisplay');
   if (displayEl) {
-    displayEl.textContent = `${val.toFixed(1)} ★`;
+    displayEl.textContent = `${safeVal.toFixed(1)} ★`;
   }
 
   const spans = document.querySelectorAll('#starSelector span');
   spans.forEach((span, i) => {
     const starNum = i + 1;
-    if (starNum <= val) {
+    if (starNum <= safeVal) {
       span.innerHTML = '<i class="fa-solid fa-star"></i>';
       span.style.color = 'var(--accent-yellow)';
       span.style.opacity = '1';
-    } else if (starNum - 0.5 === val) {
+    } else if (starNum - 0.5 === safeVal) {
       span.innerHTML = '<i class="fa-solid fa-star-half-stroke"></i>';
       span.style.color = 'var(--accent-yellow)';
       span.style.opacity = '1';
@@ -1593,8 +1594,8 @@ function renderStarSelectorState(val) {
 }
 
 function setFormStars(val) {
-  selectedFormStars = val;
-  renderStarSelectorState(val);
+  selectedFormStars = Math.max(1.0, Math.min(5, val));
+  renderStarSelectorState(selectedFormStars);
 }
 
 function updateCharCounter() {
