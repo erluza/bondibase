@@ -432,6 +432,38 @@
     </div>
   </div>
 
+  <!-- Viral / Capacity Server Notice Modal -->
+  <div class="modal-overlay" id="viralNoticeModal" onclick="if(event.target===this) closeViralNoticeModal()">
+    <div class="modal-card-box" style="width: min(440px, 92vw); border: 1px solid rgba(245, 158, 11, 0.45); box-shadow: 0 10px 30px rgba(245, 158, 11, 0.15);">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeViralNoticeModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+        <div style="width:44px; height:44px; border-radius:50%; background:rgba(245, 158, 11, 0.2); color:#fbbf24; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div>
+          <div class="modal-title-head" style="font-size:18px; margin:0;">¡Aviso importante!</div>
+          <div style="font-size:12px; color:var(--text-muted);">Mensaje de Bondibase</div>
+        </div>
+      </div>
+
+      <div style="background:rgba(245, 158, 11, 0.1); border:1px solid rgba(245, 158, 11, 0.3); border-radius:10px; padding:16px; margin-bottom:18px; font-size:15px; line-height:1.5; color:#fef08a; font-weight:700; text-align:center;">
+        Debido a que el proyecto la pego y no tengo un sope, se puede caer en cualquier momento!
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#94a3b8; cursor:pointer; user-select:none;">
+          <input type="checkbox" id="dontShowNoticeCheckbox" style="accent-color:var(--accent-blue); width:16px; height:16px; cursor:pointer;">
+          <span>No volver a mostrar de nuevo</span>
+        </label>
+
+        <button type="button" class="btn-full btn-primary" onclick="closeViralNoticeModal()" style="padding:12px; font-size:14px; background:linear-gradient(135deg, #f59e0b, #d97706); border:none; font-weight:700;">
+          Aceptar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Mobile Bottom Navigation Bar (Hidden on PC, visible on Mobile <= 768px) -->
   <nav class="mobile-bottom-nav" id="mobileBottomNav">
     <button class="mobile-nav-item active" id="mobileNavFeed" onclick="switchTab('feed')">

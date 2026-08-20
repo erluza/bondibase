@@ -76,6 +76,7 @@ function initApp() {
   setFormStars(5);
   switchTab('feed');
   setupPosterEngineListener();
+  checkViralNoticeModal();
 }
 
 // ----------------------------------------------------
@@ -2030,6 +2031,28 @@ function showToast(msg) {
   }, 3000);
 }
 
+// Viral / Capacity Notice Modal Manager
+function checkViralNoticeModal() {
+  try {
+    const hideNotice = localStorage.getItem('bondibase_hide_viral_notice');
+    if (hideNotice !== 'true') {
+      setTimeout(() => {
+        openModal('viralNoticeModal');
+      }, 500);
+    }
+  } catch (e) {}
+}
+
+function closeViralNoticeModal() {
+  const checkbox = document.getElementById('dontShowNoticeCheckbox');
+  if (checkbox && checkbox.checked) {
+    try {
+      localStorage.setItem('bondibase_hide_viral_notice', 'true');
+    } catch (e) {}
+  }
+  closeModal('viralNoticeModal');
+}
+
 // Global Key Listeners
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
@@ -2041,6 +2064,7 @@ window.addEventListener('keydown', (e) => {
     closeForgotPasswordModal();
     closeChangePasswordModal();
     closeEditBioModal();
+    closeViralNoticeModal();
   }
 });
 
