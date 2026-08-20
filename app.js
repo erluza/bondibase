@@ -1105,14 +1105,69 @@ function renderReviewCardItem(r) {
         </div>
         <div class="review-footer">
           <span>${friendlyDate}</span>
-          <button class="like-btn ${isLiked ? 'liked' : ''}" onclick="toggleLikeReview('${r.id}')">
-            ${isLiked ? '<i class="fa-solid fa-heart" style="color:var(--accent-pink);"></i>' : '<i class="fa-regular fa-heart"></i>'}
-            <span>${r.likes || 0}</span>
-          </button>
+          <div style="display:flex; align-items:center; gap:10px;">
+            ${isMyOwn ? `<button class="btn-danger-sm" style="font-size:11px; padding:3px 8px; border-radius:12px;" onclick="deleteUserReview('${r.id}')" title="Borrar esta reseña para siempre"><i class="fa-solid fa-trash-can"></i> Borrar</button>` : ''}
+            <button class="like-btn ${isLiked ? 'liked' : ''}" onclick="toggleLikeReview('${r.id}')">
+              ${isLiked ? '<i class="fa-solid fa-heart" style="color:var(--accent-pink);"></i>' : '<i class="fa-regular fa-heart"></i>'}
+              <span>${r.likes || 0}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
   `;
+}
+
+async function deleteUserReview(reviewId) {
+  if (!currentUser) return;
+
+  const idx = reviewsData.findIndex(r => r.id === reviewId);
+  if (idx === -1) return;
+
+  const targetRev = reviewsData[idx];
+  if (targetRev.userHandle !== currentUser.handle) {
+    showToast('No tenés permiso para borrar esta reseña');
+    return;
+  }
+
+  if (!confirm('¿Estás seguro de que querés borrar esta reseña para siempre? Dejará de contar para la línea.')) {
+    return;
+  }
+
+  reviewsData.splice(idx, 1);
+  localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
+
+  if (likesData.has(reviewId)) {
+    likesData.delete(reviewId);
+    localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData)));
+  }
+
+  if (window.db && window.fb) {
+    try {
+      await window.fb.deleteDoc(window.fb.doc(window.db, "reviews", reviewId));
+    } catch (err) {
+      console.warn("Firestore delete review:", err);
+    }
+  }
+
+  showToast('Reseña eliminada para siempre');
+
+  if (currentModalLine) {
+    const stats = getLineStats(currentModalLine.numero);
+    document.getElementById('pModalAvgStars').textContent = `${stats.avg} ★`;
+    document.getElementById('pModalRatingStars').innerHTML = renderStarsHtml(Math.round(stats.avg));
+    document.getElementById('pModalTotalReviewsCount').textContent = `${stats.count} reseña${stats.count === 1 ? '' : 's'} en Bondibase`;
+    document.getElementById('reviewTextInput').value = '';
+    document.getElementById('formTitle').textContent = 'Dejar tu reseña';
+    setFormStars(5);
+    renderLineReviewsList(currentModalLine.numero);
+  }
+
+  if (currentProfileHandle) {
+    openUserProfile(currentProfileHandle);
+  }
+
+  renderMain();
 }
 
 function toggleFollowReviewAuthor(targetHandle) {
