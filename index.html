@@ -432,6 +432,26 @@
     </div>
   </div>
 
+  <!-- Mobile Bottom Navigation Bar (Hidden on PC, visible on Mobile <= 768px) -->
+  <nav class="mobile-bottom-nav" id="mobileBottomNav">
+    <button class="mobile-nav-item active" id="mobileNavFeed" onclick="switchTab('feed')">
+      <div class="mobile-nav-icon"><i class="fa-solid fa-newspaper"></i></div>
+      <span>Feed</span>
+    </button>
+
+    <button class="mobile-nav-item mobile-nav-center" id="mobileNavMy" onclick="handleMobileCenterNavClick()">
+      <div class="mobile-nav-icon-circle" id="mobileCenterNavCircle">
+        <i class="fa-solid fa-user"></i>
+      </div>
+      <span id="mobileCenterNavLabel">Ingresar</span>
+    </button>
+
+    <button class="mobile-nav-item" id="mobileNavGrid" onclick="switchTab('grid')">
+      <div class="mobile-nav-icon"><i class="fa-solid fa-bus"></i></div>
+      <span>Líneas</span>
+    </button>
+  </nav>
+
   <!-- Toast Notification Container -->
   <div id="toastContainer"></div>
 

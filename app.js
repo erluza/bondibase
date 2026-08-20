@@ -922,6 +922,9 @@ function miniPosterHtml(l, clickable = true) {
 // ----------------------------------------------------
 function renderHeaderAuth() {
   const container = document.getElementById('headerAuthArea');
+  const centerCircle = document.getElementById('mobileCenterNavCircle');
+  const centerLabel = document.getElementById('mobileCenterNavLabel');
+
   if (currentUser) {
     const avatarHtml = renderAvatarHtml(currentUser.handle, currentUser.photo, 28);
     container.innerHTML = `
@@ -932,12 +935,24 @@ function renderHeaderAuth() {
       <button class="btn-nav-link" onclick="logoutUser()" style="font-size:12px;">Salir</button>
     `;
     document.getElementById('tab-my').style.display = 'inline-flex';
+
+    if (centerCircle && centerLabel) {
+      const mobAvatar = renderAvatarHtml(currentUser.handle, currentUser.photo, 32);
+      centerCircle.innerHTML = mobAvatar;
+      centerLabel.textContent = currentUser.handle;
+    }
+
   } else {
     container.innerHTML = `
       <button class="btn-nav-link" onclick="openAuthModal('login')">Iniciar sesión</button>
       <button class="btn-primary" onclick="openAuthModal('register')">Registrarse</button>
     `;
     document.getElementById('tab-my').style.display = 'none';
+
+    if (centerCircle && centerLabel) {
+      centerCircle.innerHTML = `<i class="fa-solid fa-user"></i>`;
+      centerLabel.textContent = 'Ingresar';
+    }
   }
 }
 
@@ -946,6 +961,19 @@ function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
   const targetBtn = document.getElementById('tab-' + tabName);
   if (targetBtn) targetBtn.classList.add('active');
+
+  // Mobile Bottom Nav Active state sync
+  const mobFeed = document.getElementById('mobileNavFeed');
+  const mobGrid = document.getElementById('mobileNavGrid');
+  const mobMy = document.getElementById('mobileNavMy');
+
+  if (mobFeed) mobFeed.classList.remove('active');
+  if (mobGrid) mobGrid.classList.remove('active');
+  if (mobMy) mobMy.classList.remove('active');
+
+  if (tabName === 'feed' && mobFeed) mobFeed.classList.add('active');
+  if (tabName === 'grid' && mobGrid) mobGrid.classList.add('active');
+  if (tabName === 'my' && mobMy) mobMy.classList.add('active');
 
   const searchInput = document.getElementById('searchInput');
   const filtersGroup = document.getElementById('gridFilters');
@@ -963,6 +991,14 @@ function switchTab(tabName) {
 
   searchInput.value = '';
   renderMain();
+}
+
+function handleMobileCenterNavClick() {
+  if (currentUser) {
+    openUserProfile(currentUser.handle);
+  } else {
+    openAuthModal('login');
+  }
 }
 
 function renderMain() {
