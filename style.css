@@ -1101,14 +1101,45 @@ body {
   background: #111827;
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  width: min(720px, 100%);
+  width: min(860px, 95vw);
   max-height: 90vh;
-  padding: 24px;
+  padding: 28px;
   box-shadow: var(--shadow-lg);
   position: relative;
   overflow-y: auto;
   margin: auto;
+  display: flex;
+  flex-direction: column;
   animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#userReviewsGrid {
+  flex: 1;
+  min-height: 350px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+#userReviewsGrid::-webkit-scrollbar,
+.profile-modal-box::-webkit-scrollbar {
+  width: 6px;
+}
+
+#userReviewsGrid::-webkit-scrollbar-track,
+.profile-modal-box::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+#userReviewsGrid::-webkit-scrollbar-thumb,
+.profile-modal-box::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+#userReviewsGrid::-webkit-scrollbar-thumb:hover,
+.profile-modal-box::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .profile-header-card {
