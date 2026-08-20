@@ -1760,8 +1760,7 @@ footer a:hover {
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  height: 85px;
-  padding-top: 14px;
+  user-select: none;
 }
 
 .histogram-star-edge {
@@ -1769,35 +1768,32 @@ footer a:hover {
   color: var(--accent-yellow);
   font-weight: 800;
   white-space: nowrap;
-  padding-bottom: 2px;
+  padding-bottom: 20px;
 }
 
-.histogram-star-edge.left {
-  letter-spacing: 1px;
-}
-
-.histogram-star-edge.right {
-  letter-spacing: 1px;
-}
-
-.histogram-bars-container {
+.histogram-main-body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.histogram-bars-track {
+  height: 65px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 4px;
-  height: 100%;
   border-bottom: 2px solid rgba(255, 255, 255, 0.15);
-  padding-bottom: 2px;
+  padding-bottom: 1px;
 }
 
 .histogram-bar-col {
   flex: 1;
   height: 100%;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: flex-end;
+  justify-content: center;
   position: relative;
   cursor: pointer;
 }
@@ -1807,7 +1803,7 @@ footer a:hover {
   max-width: 24px;
   background: #475569;
   border-radius: 4px 4px 0 0;
-  transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, box-shadow 0.2s ease;
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, box-shadow 0.2s ease;
   position: relative;
   display: flex;
   justify-content: center;
@@ -1834,13 +1830,16 @@ footer a:hover {
   opacity: 1;
 }
 
+.histogram-labels-track {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
 .histogram-step-label {
+  flex: 1;
+  text-align: center;
   font-size: 9.5px;
   font-weight: 700;
   color: #64748b;
-  margin-top: 4px;
-}
-
-.histogram-bar-col:hover .histogram-step-label {
-  color: #ffffff;
 }

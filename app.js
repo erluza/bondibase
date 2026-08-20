@@ -1910,38 +1910,46 @@ function renderRatingHistogramHtml(revs, title = 'DISTRIBUCIÓN DE CALIFICACIONE
   }
 
   const RATING_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
-  const counts = { 1.0: 0, 1.5: 0, 2.0: 0, 2.5: 0, 3.0: 0, 3.5: 0, 4.0: 0, 4.5: 0, 5.0: 0 };
+  const counts = { '1.0': 0, '1.5': 0, '2.0': 0, '2.5': 0, '3.0': 0, '3.5': 0, '4.0': 0, '4.5': 0, '5.0': 0 };
 
   revs.forEach(r => {
-    const val = Math.round((r.stars || 5) * 2) / 2;
-    const clamped = Math.max(1.0, Math.min(5.0, val));
-    counts[clamped] = (counts[clamped] || 0) + 1;
+    const rawVal = typeof r.stars === 'number' ? r.stars : parseFloat(r.stars) || 5;
+    const rounded = Math.round(rawVal * 2) / 2;
+    const clamped = Math.max(1.0, Math.min(5.0, rounded));
+    const key = clamped.toFixed(1);
+    counts[key] = (counts[key] || 0) + 1;
   });
 
   const total = revs.length;
   const maxCount = Math.max(1, ...Object.values(counts));
 
-  const barsHtml = RATING_STEPS.map(step => {
-    const count = counts[step] || 0;
+  let barsHtml = '';
+  let labelsHtml = '';
+
+  RATING_STEPS.forEach(step => {
+    const key = step.toFixed(1);
+    const count = counts[key] || 0;
     
-    // Mathematical linear scaling: 0 votes -> 3% height; >0 votes -> 10% to 100% proportional
-    let heightPct = 3;
+    // Direct percentage of maxCount (0 votes -> 4% flat line, >0 votes -> (count/maxCount)*100%)
+    let heightPct = 4;
     if (count > 0 && maxCount > 0) {
-      heightPct = 10 + ((count / maxCount) * 90);
+      heightPct = Math.max(12, (count / maxCount) * 100);
     }
 
     const pctOfTotal = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
-    const titleText = `${step.toFixed(1)} ★: ${count} reseña${count === 1 ? '' : 's'} (${pctOfTotal}%)`;
+    const titleText = `${key} ★: ${count} reseña${count === 1 ? '' : 's'} (${pctOfTotal}%)`;
+    const labelStr = step % 1 === 0 ? step.toFixed(0) : '.5';
 
-    return `
+    barsHtml += `
       <div class="histogram-bar-col" title="${titleText}">
         <div class="histogram-bar-fill" style="height: ${heightPct.toFixed(1)}%;">
           ${count > 0 ? `<span class="bar-count-tooltip">${count}</span>` : ''}
         </div>
-        <span class="histogram-step-label">${step % 1 === 0 ? step.toFixed(0) : '.5'}</span>
       </div>
     `;
-  }).join('');
+
+    labelsHtml += `<span class="histogram-step-label">${labelStr}</span>`;
+  });
 
   return `
     <div class="rating-histogram-card">
@@ -1949,11 +1957,19 @@ function renderRatingHistogramHtml(revs, title = 'DISTRIBUCIÓN DE CALIFICACIONE
         <span class="histogram-title">${title}</span>
         <span class="histogram-count-badge">${total} reseña${total === 1 ? '' : 's'}</span>
       </div>
+      
       <div class="histogram-chart-wrapper">
         <div class="histogram-star-edge left">★</div>
-        <div class="histogram-bars-container">
-          ${barsHtml}
+        
+        <div class="histogram-main-body">
+          <div class="histogram-bars-track">
+            ${barsHtml}
+          </div>
+          <div class="histogram-labels-track">
+            ${labelsHtml}
+          </div>
         </div>
+
         <div class="histogram-star-edge right">★★★★★</div>
       </div>
     </div>
