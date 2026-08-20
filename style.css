@@ -1318,14 +1318,24 @@ footer a:hover {
 
   .header-container {
     flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
     gap: 10px;
+  }
+
+  .brand-logo {
+    order: 1;
+  }
+
+  .header-auth {
+    order: 2;
   }
 
   .header-search {
     order: 3;
     max-width: 100%;
     width: 100%;
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   .hero-banner {
