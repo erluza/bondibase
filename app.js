@@ -1334,6 +1334,9 @@ function renderReviewCardItem(r) {
         <div class="review-footer">
           <span>${friendlyDate}</span>
           <div style="display:flex; align-items:center; gap:10px;">
+            <button class="like-btn" onclick="captureReviewCard('${r.id}')" title="Compartir recorte de esta reseña">
+              <i class="fa-solid fa-share-nodes"></i>
+            </button>
             ${isMyOwn ? `<button class="btn-danger-sm" style="font-size:11px; padding:3px 8px; border-radius:12px;" onclick="deleteUserReview('${r.id}')" title="Borrar esta reseña para siempre"><i class="fa-solid fa-trash-can"></i> Borrar</button>` : ''}
             <button class="like-btn ${isLiked ? 'liked' : ''}" onclick="toggleLikeReview('${r.id}')">
               ${isLiked ? '<i class="fa-solid fa-heart" style="color:var(--accent-pink);"></i>' : '<i class="fa-regular fa-heart"></i>'}
@@ -1770,6 +1773,15 @@ function openUserProfile(handle) {
     }
   }
 
+  const profileShareBtn = document.getElementById('profileShareCardBtn');
+  if (profileShareBtn) {
+    if (userRevs.length >= 1) {
+      profileShareBtn.style.display = 'inline-flex';
+    } else {
+      profileShareBtn.style.display = 'none';
+    }
+  }
+
   const grid = document.getElementById('userReviewsGrid');
   if (userRevs.length === 0) {
     grid.innerHTML = `<div style="text-align:center; padding:30px; color:var(--text-muted);">Este usuario no ha calificado ninguna línea aún.</div>`;
@@ -2149,6 +2161,331 @@ window.addEventListener('keydown', (e) => {
     closeViralNoticeModal();
   }
 });
+
+// ----------------------------------------------------
+// CANVAS IMAGE GENERATORS & NATIVE SHARE SYSTEM
+// ----------------------------------------------------
+async function shareOrDownloadImage(blob, filename, title, text) {
+  if (!blob) {
+    showToast('Error al generar la imagen');
+    return;
+  }
+  const file = new File([blob], filename, { type: 'image/png' });
+  
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        title: title || 'Bondibase AMBA',
+        text: text || 'Mirá esta bitácora en Bondibase',
+        files: [file]
+      });
+      showToast('¡Imagen compartida con éxito!');
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      console.warn("Navigator share cancelado o no disponible, descargando imagen...", err);
+    }
+  }
+
+  // Instant PNG Download Fallback
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('¡Imagen descargada con éxito!');
+}
+
+function drawCanvasTextWrapped(ctx, text, x, y, maxWidth, lineHeight, maxLines = 5) {
+  const words = text.split(' ');
+  let line = '';
+  let currentY = y;
+  let linesCount = 0;
+
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && n > 0) {
+      linesCount++;
+      if (linesCount >= maxLines) {
+        ctx.fillText(line.trim() + '...', x, currentY);
+        return currentY + lineHeight;
+      }
+      ctx.fillText(line.trim(), x, currentY);
+      line = words[n] + ' ';
+      currentY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line.trim(), x, currentY);
+  return currentY + lineHeight;
+}
+
+// CAPTURE USER PROFILE CARD GENERATOR
+async function captureUserProfileCard(handle) {
+  if (!handle) return;
+  const userRevs = reviewsData.filter(r => r.userHandle === handle && !isBlacklistedUser(r.userHandle));
+  if (userRevs.length < 1) {
+    showToast('El usuario debe tener al menos 1 reseña para capturar su perfil');
+    return;
+  }
+  userRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
+
+  showToast('Generando imagen de perfil...');
+
+  const uData = usersMap[handle] || {};
+  const cols = Math.min(4, Math.max(2, userRevs.length));
+  const cardW = 150;
+  const cardH = 140;
+  const gap = 16;
+  const padding = 28;
+
+  const rows = Math.ceil(userRevs.length / cols);
+  const canvasW = (padding * 2) + (cols * cardW) + ((cols - 1) * gap);
+  const headerH = 140;
+  const footerH = 50;
+  const canvasH = headerH + (rows * (cardH + gap)) + footerH + padding;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+  const ctx = canvas.getContext('2d');
+
+  // Background Gradient
+  const bgGrad = ctx.createLinearGradient(0, 0, canvasW, canvasH);
+  bgGrad.addColorStop(0, '#0f172a');
+  bgGrad.addColorStop(1, '#1e293b');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Outer Border Accent Line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(10, 10, canvasW - 20, canvasH - 20);
+
+  // Brand Logo Top Right
+  ctx.font = '900 20px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'right';
+  ctx.fillText('bondibase • AMBA', canvasW - padding, 45);
+
+  // User Header Left
+  ctx.textAlign = 'left';
+  ctx.font = '800 22px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(handle, padding, 45);
+
+  ctx.font = '500 13px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(`${userRevs.length} línea${userRevs.length === 1 ? '' : 's'} calificada${userRevs.length === 1 ? '' : 's'} en la comunidad`, padding, 68);
+
+  if (uData.bio) {
+    ctx.font = 'italic 12px "Stack Sans Text", sans-serif';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(`"${uData.bio.substring(0, 60)}${uData.bio.length > 60 ? '...' : ''}"`, padding, 88);
+  }
+
+  // Divider Line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.beginPath();
+  ctx.moveTo(padding, headerH - 20);
+  ctx.lineTo(canvasW - padding, headerH - 20);
+  ctx.stroke();
+
+  // Draw Grid of Mini Posters
+  let index = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (index >= userRevs.length) break;
+      const rev = userRevs[index];
+      const line = LINEAS_DATA.find(l => l.numero === rev.lineaNumero);
+
+      const x = padding + (c * (cardW + gap));
+      const y = headerH + (r * (cardH + gap));
+
+      const colores = (line && line.colores) || {};
+      const topCol = colores.superior || '#3b82f6';
+      const botCol = colores.inferior || '#1d4ed8';
+
+      const posterGrad = ctx.createLinearGradient(x, y, x, y + 90);
+      posterGrad.addColorStop(0, topCol);
+      posterGrad.addColorStop(0.4, topCol);
+      posterGrad.addColorStop(0.401, botCol);
+      posterGrad.addColorStop(1, botCol);
+
+      ctx.fillStyle = posterGrad;
+      ctx.beginPath();
+      ctx.roundRect(x, y, cardW, 90, [10, 10, 4, 4]);
+      ctx.fill();
+
+      // Border top
+      ctx.strokeStyle = colores.borde || '#000000';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, cardW, 3);
+
+      // Line Number
+      const textCol = colores.texto || getContrastColor(botCol);
+      ctx.fillStyle = textCol;
+      ctx.font = '900 26px "Stack Sans Text", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(stripLoc(rev.lineaNumero), x + (cardW / 2), y + 54);
+
+      // Admin Tag Top
+      ctx.font = '700 9px "Stack Sans Text", sans-serif';
+      ctx.fillStyle = getContrastColor(topCol);
+      ctx.fillText(line ? line.administracion : 'Línea', x + (cardW / 2), y + 16);
+
+      // Operator Bottom
+      ctx.font = '500 8px "Stack Sans Text", sans-serif';
+      ctx.fillStyle = textCol;
+      ctx.fillText(line && line.operadora ? line.operadora.substring(0, 18) : '', x + (cardW / 2), y + 80);
+
+      // Rating Stars Pill Below
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
+      ctx.beginPath();
+      ctx.roundRect(x + 10, y + 100, cardW - 20, 26, 13);
+      ctx.fill();
+
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = '800 13px "Stack Sans Text", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`★ ${rev.stars.toFixed(1)}`, x + (cardW / 2), y + 117);
+
+      index++;
+    }
+  }
+
+  // Footer Watermark
+  ctx.fillStyle = '#64748b';
+  ctx.font = '600 11px "Stack Sans Text", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('bondibase.vercel.app • Tu bitácora de colectivos del AMBA', canvasW / 2, canvasH - 18);
+
+  canvas.toBlob(blob => {
+    shareOrDownloadImage(blob, `bondibase-perfil-${handle.replace('@','')}.png`, `Bitácora de ${handle} en Bondibase`, `¡Mirá mis líneas calificadas en Bondibase!`);
+  }, 'image/png');
+}
+
+// CAPTURE INDIVIDUAL REVIEW CARD GENERATOR
+async function captureReviewCard(reviewId) {
+  const rev = reviewsData.find(r => r.id === reviewId);
+  if (!rev) return;
+
+  showToast('Generando recorte de reseña...');
+
+  const line = LINEAS_DATA.find(l => l.numero === rev.lineaNumero);
+  const canvasW = 760;
+  const canvasH = 380;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+  const ctx = canvas.getContext('2d');
+
+  // Background Gradient
+  const bgGrad = ctx.createLinearGradient(0, 0, canvasW, canvasH);
+  bgGrad.addColorStop(0, '#0f172a');
+  bgGrad.addColorStop(1, '#1e293b');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Border Accent Line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(10, 10, canvasW - 20, canvasH - 20);
+
+  // Left Column: Mini Poster Card
+  const posterW = 180;
+  const posterH = 270;
+  const posterX = 36;
+  const posterY = 40;
+
+  const colores = (line && line.colores) || {};
+  const topCol = colores.superior || '#3b82f6';
+  const botCol = colores.inferior || '#1d4ed8';
+
+  const posterGrad = ctx.createLinearGradient(posterX, posterY, posterX, posterY + posterH);
+  posterGrad.addColorStop(0, topCol);
+  posterGrad.addColorStop(0.38, topCol);
+  posterGrad.addColorStop(0.381, botCol);
+  posterGrad.addColorStop(1, botCol);
+
+  ctx.fillStyle = posterGrad;
+  ctx.beginPath();
+  ctx.roundRect(posterX, posterY, posterW, posterH, [16, 16, 16, 16]);
+  ctx.fill();
+
+  ctx.strokeStyle = colores.borde || '#000000';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(posterX, posterY, posterW, 4);
+
+  // Poster Tag Top
+  ctx.textAlign = 'center';
+  ctx.font = '800 13px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = getContrastColor(topCol);
+  ctx.fillText(line ? line.administracion : 'Línea', posterX + (posterW / 2), posterY + 36);
+
+  // Poster Line Number
+  const textCol = colores.texto || getContrastColor(botCol);
+  ctx.font = '900 52px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = textCol;
+  ctx.fillText(stripLoc(rev.lineaNumero), posterX + (posterW / 2), posterY + 160);
+
+  // Poster Operator
+  ctx.font = '600 11px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = textCol;
+  ctx.fillText(line && line.operadora ? line.operadora.substring(0, 24) : '', posterX + (posterW / 2), posterY + 245);
+
+  // Right Column: Author, Line Title, Comment, Rating
+  const rightX = posterX + posterW + 36;
+  const rightW = canvasW - rightX - 36;
+
+  // Author handle & Date
+  ctx.textAlign = 'left';
+  ctx.font = '800 20px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(rev.userHandle, rightX, posterY + 24);
+
+  ctx.font = '500 12px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(formatDateFriendly(rev.date), rightX, posterY + 44);
+
+  // Rating Badge Right
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
+  ctx.beginPath();
+  ctx.roundRect(canvasW - 130, posterY + 8, 94, 32, 16);
+  ctx.fill();
+
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '800 15px "Stack Sans Text", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`★ ${rev.stars.toFixed(1)}`, canvasW - 83, posterY + 30);
+
+  // Line Title
+  ctx.textAlign = 'left';
+  ctx.font = '700 15px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#60a5fa';
+  ctx.fillText(`Línea ${rev.lineaNumero} ${line ? '- ' + line.operadora : ''}`, rightX, posterY + 84);
+
+  // Review Comment Text
+  ctx.font = '400 15px "Stack Sans Text", sans-serif';
+  ctx.fillStyle = '#f8fafc';
+  drawCanvasTextWrapped(ctx, `"${rev.text}"`, rightX, posterY + 118, rightW, 22, 5);
+
+  // Footer Watermark
+  ctx.fillStyle = '#64748b';
+  ctx.font = '600 12px "Stack Sans Text", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('bondibase.vercel.app • Reseñas de colectivos del AMBA', canvasW / 2, canvasH - 20);
+
+  canvas.toBlob(blob => {
+    shareOrDownloadImage(blob, `bondibase-resena-linea-${rev.lineaNumero}.png`, `Reseña de Línea ${rev.lineaNumero} por ${rev.userHandle}`, `"${rev.text.substring(0,60)}..." en Bondibase`);
+  }, 'image/png');
+}
 
 // Run application on DOM loaded
 document.addEventListener('DOMContentLoaded', initApp);

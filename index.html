@@ -378,6 +378,9 @@
 
         <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
           <button class="btn-follow" id="profileFollowBtn" onclick="toggleFollowUser()">Seguir</button>
+          <button class="btn-primary-sm" id="profileShareCardBtn" style="display:none;" onclick="captureUserProfileCard(currentProfileHandle)" title="Capturar e imprimir imagen de perfil con líneas calificadas">
+            <i class="fa-solid fa-share-nodes"></i> Capturar perfil
+          </button>
           <button class="btn-secondary-sm" id="profileChangePasswordBtn" style="display:none;" onclick="openChangePasswordModal()">
             <i class="fa-solid fa-key"></i> Cambiar contraseña
           </button>
