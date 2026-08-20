@@ -884,9 +884,42 @@ function getContrastColor(hexColor) {
   return yiq >= 135 ? '#000000' : '#ffffff';
 }
 
-// Friendly Spanish Date Formatting
-function formatDateFriendly(dateStr) {
+// Friendly Spanish Date Formatting (Supports UTC-3 time format for new posts: "1 de enero a las 12:34")
+function formatDateFriendly(dateStr, r) {
   if (!dateStr) return 'Reciente';
+
+  // If review has time flag (new posts), format in Argentina UTC-3: "1 de enero a las 12:34"
+  if (r && r.hasTime) {
+    try {
+      const dateObj = r.timestamp ? new Date(r.timestamp) : new Date(dateStr);
+      const formatter = new Intl.DateTimeFormat('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        day: 'numeric',
+        month: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(dateObj);
+      let day = '';
+      let monthIdx = 0;
+      let hour = '';
+      let minute = '';
+      parts.forEach(p => {
+        if (p.type === 'day') day = parseInt(p.value, 10);
+        if (p.type === 'month') monthIdx = parseInt(p.value, 10) - 1;
+        if (p.type === 'hour') hour = p.value;
+        if (p.type === 'minute') minute = p.value;
+      });
+      if (day && monthIdx >= 0 && monthIdx < 12 && hour && minute) {
+        return `${day} de ${MESES[monthIdx]} a las ${hour}:${minute}`;
+      }
+    } catch (e) {
+      console.warn("Error formatting UTC-3 date:", e);
+    }
+  }
+
+  // Legacy / Old posts without time: "1 de enero de 2026"
   const cleanDateStr = String(dateStr).includes('T') ? String(dateStr).split('T')[0] : String(dateStr);
   const parts = cleanDateStr.split('-');
   if (parts.length !== 3) return dateStr;
@@ -1308,7 +1341,7 @@ function renderReviewCardItem(r) {
 
   const line = LINEAS_DATA.find(l => l.numero === r.lineaNumero);
   const isLiked = likesData.has(r.id);
-  const friendlyDate = formatDateFriendly(r.date);
+  const friendlyDate = formatDateFriendly(r.date, r);
   const avatarHtml = renderAvatarHtml(r.userHandle, r.userPhoto, 24);
 
   const myHandle = currentUser ? currentUser.handle : null;
@@ -1633,7 +1666,8 @@ async function submitReview() {
     likes: oldLikes,
     likedBy: oldLikedBy,
     date: new Date().toISOString(),
-    timestamp: nowTs
+    timestamp: nowTs,
+    hasTime: true
   };
 
   const existingIdx = reviewsData.findIndex(r => r.id === docId);
