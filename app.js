@@ -191,28 +191,27 @@ function initRealtimeUsers() {
 function initRealtimeFeed() {
   if (!window.db || !window.fb) return;
   try {
-    const q = window.fb.query(window.fb.collection(window.db, "reviews"), window.fb.orderBy("date", "desc"));
-    window.fb.onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const remoteRevs = snapshot.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(r => !isBlacklistedUser(r.userHandle));
-        
-        reviewsData = remoteRevs;
-        try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
+    const colRef = window.fb.collection(window.db, "reviews");
+    window.fb.onSnapshot(colRef, (snapshot) => {
+      const remoteRevs = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => !isBlacklistedUser(r.userHandle));
+      
+      remoteRevs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      reviewsData = remoteRevs;
+      try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
-        likesData = new Set();
-        if (currentUser) {
-          reviewsData.forEach(r => {
-            if (Array.isArray(r.likedBy) && r.likedBy.includes(currentUser.handle)) {
-              likesData.add(r.id);
-            }
-          });
-        }
-        try { localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData))); } catch(e) {}
-
-        renderMain();
+      likesData = new Set();
+      if (currentUser) {
+        reviewsData.forEach(r => {
+          if (Array.isArray(r.likedBy) && r.likedBy.includes(currentUser.handle)) {
+            likesData.add(r.id);
+          }
+        });
       }
+      try { localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData))); } catch(e) {}
+
+      renderMain();
     }, (err) => {
       console.warn("Firestore snapshot info:", err);
     });
