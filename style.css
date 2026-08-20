@@ -896,23 +896,44 @@ body {
 }
 
 /* Star Rating Selector Component */
+.star-rating-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .star-rating-input {
   display: flex;
-  gap: 8px;
-  font-size: 22px;
+  gap: 6px;
+  font-size: 26px;
   color: #475569;
   cursor: pointer;
-  user-select: none;
+  touch-action: manipulation;
 }
 
 .star-rating-input span {
-  transition: color 0.15s ease, transform 0.15s ease;
+  display: inline-block;
+  padding: 4px 2px;
+  transition: transform 0.12s ease, color 0.12s ease;
+  touch-action: manipulation;
 }
 
-.star-rating-input span:hover,
-.star-rating-input span.active {
-  color: var(--accent-yellow);
-  transform: scale(1.18);
+.star-rating-input span:active {
+  transform: scale(1.25);
+}
+
+.rating-value-pill {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.5px;
 }
 
 /* Form Controls */

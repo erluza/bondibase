@@ -150,12 +150,15 @@
           <div style="font-weight:700; font-size:14px; color:#fff;" id="formTitle">
             Dejar tu reseña
           </div>
-          <div class="star-rating-input" id="starSelector">
-            <span onclick="setFormStars(1)" data-star="1"><i class="fa-solid fa-star"></i></span>
-            <span onclick="setFormStars(2)" data-star="2"><i class="fa-solid fa-star"></i></span>
-            <span onclick="setFormStars(3)" data-star="3"><i class="fa-solid fa-star"></i></span>
-            <span onclick="setFormStars(4)" data-star="4"><i class="fa-solid fa-star"></i></span>
-            <span onclick="setFormStars(5)" data-star="5"><i class="fa-solid fa-star"></i></span>
+          <div class="star-rating-wrapper">
+            <div class="star-rating-input" id="starSelector">
+              <span data-star="1" onclick="handleStarClick(event, 1)" onpointermove="handleStarHover(event, 1)" onpointerleave="resetStarHover()"><i class="fa-solid fa-star"></i></span>
+              <span data-star="2" onclick="handleStarClick(event, 2)" onpointermove="handleStarHover(event, 2)" onpointerleave="resetStarHover()"><i class="fa-solid fa-star"></i></span>
+              <span data-star="3" onclick="handleStarClick(event, 3)" onpointermove="handleStarHover(event, 3)" onpointerleave="resetStarHover()"><i class="fa-solid fa-star"></i></span>
+              <span data-star="4" onclick="handleStarClick(event, 4)" onpointermove="handleStarHover(event, 4)" onpointerleave="resetStarHover()"><i class="fa-solid fa-star"></i></span>
+              <span data-star="5" onclick="handleStarClick(event, 5)" onpointermove="handleStarHover(event, 5)" onpointerleave="resetStarHover()"><i class="fa-solid fa-star"></i></span>
+            </div>
+            <span class="rating-value-pill" id="starRatingValueDisplay">5.0 ★</span>
           </div>
 
           <textarea class="textarea-custom" id="reviewTextInput" placeholder="Escribí una breve reseña de tu viaje en esta línea (frecuencia, limpiezas, aire acondicionado, choferes)..." maxlength="280" oninput="updateCharCounter()"></textarea>
