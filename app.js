@@ -45,8 +45,31 @@ const MESES = [
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
 ];
 
+// ====================================================
+// SHUTDOWN GENERAL (FULL SYSTEM LOCKOUT WALL)
+// Set to TRUE only when requested by admin/dev.
+// Currently: FALSE (INACTIVE)
+// ====================================================
+const IS_SHUTDOWN_GENERAL_ACTIVE = false;
+
+function checkShutdownGeneral() {
+  const wall = document.getElementById('shutdownGeneralWall');
+  if (!wall) return false;
+
+  if (IS_SHUTDOWN_GENERAL_ACTIVE) {
+    wall.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    return true;
+  } else {
+    wall.style.display = 'none';
+    return false;
+  }
+}
+
 // Initialize Storage & App
 function initApp() {
+  if (checkShutdownGeneral()) return;
+
   try {
     const storedUsersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
     Object.keys(storedUsersMap).forEach(h => {
