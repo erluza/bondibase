@@ -1535,8 +1535,8 @@ function showPoster(idx) {
     if (tyUrl) {
       tyContainer.style.display = 'block';
       tyContainer.innerHTML = `
-        <a href="${tyUrl}" target="_blank" rel="noopener" class="btn-transporte-ya" title="Abrir recorrido y colectivos en vivo en Transporte Ya!">
-          <i class="fa-solid fa-location-dot"></i> Ver Línea ${esc(stripLoc(l.numero))} en Transporte Ya! <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:11px;"></i>
+        <a href="${tyUrl}" target="_blank" rel="noopener" class="btn-transporte-ya" title="Abrir colectivo en vivo en Transporte Ya!">
+          <i class="fa-solid fa-location-dot"></i> Ver donde esta la Linea ${esc(stripLoc(l.numero))} en Transporte Ya <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:11px;"></i>
         </a>
       `;
     } else {
