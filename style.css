@@ -1471,7 +1471,12 @@ footer a:hover {
   }
 
   .poster-card {
-    width: min(260px, 80vw);
+    width: min(180px, 58vw);
+    padding: 10px 14px 14px;
+  }
+
+  .poster-title {
+    font-size: clamp(38px, 12vw, 72px);
   }
 
   .review-card {
