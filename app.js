@@ -1923,13 +1923,19 @@ function renderRatingHistogramHtml(revs, title = 'DISTRIBUCIÓN DE CALIFICACIONE
 
   const barsHtml = RATING_STEPS.map(step => {
     const count = counts[step] || 0;
-    const heightPct = count > 0 ? Math.max(12, Math.round((count / maxCount) * 100)) : 4;
-    const pctStr = total > 0 ? Math.round((count / total) * 100) : 0;
-    const titleText = `${step.toFixed(1)} ★: ${count} reseña${count === 1 ? '' : 's'} (${pctStr}%)`;
+    
+    // Mathematical linear scaling: 0 votes -> 3% height; >0 votes -> 10% to 100% proportional
+    let heightPct = 3;
+    if (count > 0 && maxCount > 0) {
+      heightPct = 10 + ((count / maxCount) * 90);
+    }
+
+    const pctOfTotal = total > 0 ? ((count / total) * 100).toFixed(1) : '0';
+    const titleText = `${step.toFixed(1)} ★: ${count} reseña${count === 1 ? '' : 's'} (${pctOfTotal}%)`;
 
     return `
       <div class="histogram-bar-col" title="${titleText}">
-        <div class="histogram-bar-fill" style="height: ${heightPct}%;">
+        <div class="histogram-bar-fill" style="height: ${heightPct.toFixed(1)}%;">
           ${count > 0 ? `<span class="bar-count-tooltip">${count}</span>` : ''}
         </div>
         <span class="histogram-step-label">${step % 1 === 0 ? step.toFixed(0) : '.5'}</span>
