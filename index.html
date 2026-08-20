@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bondibase - Reseñas de colectivos</title>
+  <meta name="description" content="Tu bitácora de colectivos del AMBA. Buscá líneas, calificalas con estrellas y compartí tus reseñas en la comunidad. Desarrollado por TIVDA / Tecnologías Integradas de VDA.">
+  
+  <!-- Google Fonts: Stack Sans Text -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Stack+Sans+Text:wght@300;400;500;600;700;900&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome 6.5.1 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- 2017 Flickr Inspired Translucent Top Bar -->
+  <header class="flickr-header">
+    <div class="header-container">
+      <a class="brand-logo" onclick="switchTab('feed')">
+        bondibase<span class="dot">•</span>
+        <span class="brand-tagline">AMBA</span>
+      </a>
+
+      <!-- Search bar (Dynamic functionality based on active tab) -->
+      <div class="header-search">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input type="text" id="searchInput" placeholder="Buscar usuarios por @usuario..." oninput="handleSearch(this.value)">
+      </div>
+
+      <div class="header-auth" id="headerAuthArea">
+        <!-- Dynamic login / user badge populated by JS -->
+      </div>
+    </div>
+  </header>
+
+  <!-- Flickr 2017 Style Hero Header -->
+  <section class="hero-banner" id="heroBanner">
+    <div class="hero-content">
+      <h1 class="hero-title">Tu bitácora de colectivos del AMBA</h1>
+      <p class="hero-subtitle">Buscá tu línea de bondi, calificala con estrellas y compartí tu reseña con otros viajeros en la comunidad.</p>
+      <div class="hero-actions">
+        <button class="btn-primary" onclick="switchTab('feed')"><i class="fa-solid fa-newspaper"></i> Ver feed de reseñas</button>
+        <button class="btn-nav-link" onclick="switchTab('grid')"><i class="fa-solid fa-bus"></i> Explorar líneas</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Workspace -->
+  <main class="main-wrapper" id="mainContent">
+
+    <!-- Sub Navigation Tabs (Default: Feed & Líneas) -->
+    <nav class="sub-nav">
+      <div class="tabs-group">
+        <button class="tab-btn active" id="tab-feed" onclick="switchTab('feed')"><i class="fa-solid fa-newspaper"></i> Feed</button>
+        <button class="tab-btn" id="tab-grid" onclick="switchTab('grid')"><i class="fa-solid fa-bus"></i> Líneas</button>
+        <button class="tab-btn" id="tab-my" onclick="switchTab('my')" style="display:none;"><i class="fa-solid fa-user"></i> Mis calificaciones</button>
+      </div>
+
+      <!-- Filters only shown in Líneas tab -->
+      <div class="filters-group" id="gridFilters" style="display:none;">
+        <select class="select-custom" id="adminFilter" onchange="applyFilters()">
+          <option value="Todas">Todas las jurisdicciones</option>
+          <option value="Nacional">Nacional</option>
+          <option value="Porteña">Porteña</option>
+          <option value="Provincial">Provincial</option>
+          <option value="Comunal">Comunal</option>
+        </select>
+
+        <select class="select-custom" id="sortFilter" onchange="applyFilters()">
+          <option value="num-asc">Número (menor a mayor)</option>
+          <option value="num-desc">Número (mayor a menor)</option>
+          <option value="rating">Mayor calificación</option>
+          <option value="reviews">Más reseñas</option>
+        </select>
+      </div>
+    </nav>
+
+    <div class="count-indicator" id="countIndicator">
+      Cargando novedades del feed de la comunidad...
+    </div>
+
+    <!-- Feed View of Reviews (Default Tab) -->
+    <div class="feed-container tab-fade-in" id="feedContainer"></div>
+
+    <!-- Grid View of Bondis (Líneas Tab) -->
+    <div class="grid tab-fade-in" id="gridContainer" style="display:none;"></div>
+
+  </main>
+
+  <!-- Movie-Style Poster & Line Profile Modal -->
+  <div class="poster" id="posterModal" onclick="if(event.target===this) closePosterModal()">
+    <div class="modal-split-layout">
+      
+      <!-- Left: Poster Card -->
+      <div class="poster-card" id="posterCard">
+        <div class="poster-top">
+          <span id="pBadge"></span>
+          <button class="poster-close" onclick="closePosterModal()" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="poster-center">
+          <div class="poster-title" id="pTitle"></div>
+          <div class="poster-label" id="pLabel"></div>
+        </div>
+        <div class="poster-footer">
+          <div class="poster-op" id="pOp"></div>
+        </div>
+      </div>
+
+      <!-- Right: Line Details & Review Section -->
+      <div class="poster-details-panel">
+        <div class="panel-header-title">
+          <span id="pModalLineName">Línea</span>
+          <span class="tag" id="pModalAdminTag">Nacional</span>
+        </div>
+
+        <div class="panel-rating-overview">
+          <div class="big-rating-num" id="pModalAvgStars">0.0 ★</div>
+          <div>
+            <div style="font-weight:700; font-size:14px;" id="pModalRatingStars"></div>
+            <div class="rating-count-text" id="pModalTotalReviewsCount">0 reseñas comunitarias</div>
+          </div>
+        </div>
+
+        <!-- Rating & Review Form Box -->
+        <div class="review-form-box">
+          <div style="font-weight:700; font-size:14px; color:#fff;" id="formTitle">
+            Dejar tu reseña
+          </div>
+          <div class="star-rating-input" id="starSelector">
+            <span onclick="setFormStars(1)" data-star="1"><i class="fa-solid fa-star"></i></span>
+            <span onclick="setFormStars(2)" data-star="2"><i class="fa-solid fa-star"></i></span>
+            <span onclick="setFormStars(3)" data-star="3"><i class="fa-solid fa-star"></i></span>
+            <span onclick="setFormStars(4)" data-star="4"><i class="fa-solid fa-star"></i></span>
+            <span onclick="setFormStars(5)" data-star="5"><i class="fa-solid fa-star"></i></span>
+          </div>
+
+          <textarea class="textarea-custom" id="reviewTextInput" placeholder="Escribí una breve reseña de tu viaje en esta línea (frecuencia, limpiezas, aire acondicionado, choferes)..." maxlength="280" oninput="updateCharCounter()"></textarea>
+
+          <div class="form-footer-row">
+            <span class="char-counter" id="charCounterText">0 / 280</span>
+            <button class="btn-primary" onclick="submitReview()"><i class="fa-solid fa-paper-plane"></i> Publicar reseña</button>
+          </div>
+        </div>
+
+        <!-- Reviews List for this Line -->
+        <div style="font-weight:700; font-size:15px; margin-top:8px;">
+          Reseñas de la comunidad
+        </div>
+        <div class="feed-container" id="lineReviewsList" style="max-height: 300px; overflow-y: auto;">
+          <!-- Populated by JS -->
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Improved Onboarding & Auth Modal -->
+  <div class="modal-overlay" id="authModal" onclick="if(event.target===this) closeAuthModal()">
+    <div class="modal-card-box">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeAuthModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-title-head" id="authModalTitle">Ingresar a Bondibase</div>
+      <div class="modal-subtitle" id="authModalSubtitle">Elegí tu método para ingresar a la comunidad.</div>
+
+      <!-- Mode Switcher Tabs -->
+      <div class="tabs-group" style="margin-bottom:18px; justify-content:center;">
+        <button class="tab-btn active" id="authModeLoginBtn" onclick="switchAuthMode('login')">Iniciar sesión</button>
+        <button class="tab-btn" id="authModeRegisterBtn" onclick="switchAuthMode('register')">Registrarse</button>
+      </div>
+
+      <!-- LOGIN VIEW -->
+      <div id="loginViewArea">
+        <button class="btn-full btn-google" onclick="loginWithGoogle()" style="padding: 12px; font-size: 14px;">
+          <i class="fa-brands fa-google" style="color: #ea4335;"></i> Continuar con Google
+        </button>
+
+        <div class="divider-or">o con correo electrónico</div>
+
+        <form onsubmit="handleLoginEmailSubmit(event)">
+          <label class="field-label">Correo electrónico</label>
+          <input type="email" class="input-field" id="loginEmailInput" placeholder="usuario@correo.com" required>
+
+          <label class="field-label" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Contraseña</span>
+            <a href="javascript:void(0)" onclick="openForgotPasswordModal()" style="font-size:11px; color:var(--accent-blue); text-decoration:none;">¿Olvidaste tu contraseña?</a>
+          </label>
+          <input type="password" class="input-field" id="loginPasswordInput" placeholder="••••••••" required minlength="6">
+
+          <button type="submit" class="btn-full btn-primary" style="margin-top:10px;">Iniciar sesión</button>
+        </form>
+      </div>
+
+      <!-- REGISTER STEP 1: CHOICE -->
+      <div id="registerStepChoice" style="display:none;">
+        <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+          <button class="btn-full btn-google" onclick="loginWithGoogle()" style="padding: 12px; font-size: 14px;">
+            <i class="fa-brands fa-google" style="color: #ea4335;"></i> Registrarse con Google
+          </button>
+          
+          <button class="btn-full" style="background:var(--bg-card); border:1px solid var(--border-color); color:#fff; padding: 12px; font-size: 14px;" onclick="goToRegisterEmailForm()">
+            <i class="fa-solid fa-envelope" style="color:var(--accent-blue);"></i> Registrarse con correo electrónico
+          </button>
+        </div>
+      </div>
+
+      <!-- REGISTER STEP 2: EMAIL FORM -->
+      <div id="registerStepForm" style="display:none;">
+        <form onsubmit="handleRegisterEmailSubmit(event)">
+          
+          <!-- Photo Upload -->
+          <div style="text-align:center; margin-bottom:16px;">
+            <label class="field-label">Foto de perfil (opcional)</label>
+            <div class="avatar-upload-box" onclick="document.getElementById('profilePicFileInput').click()">
+              <img id="avatarPreviewImg" style="display:none; width:100%; height:100%; object-fit:cover; border-radius:50%;" />
+              <div id="avatarPlaceholderIcon">
+                <i class="fa-solid fa-camera" style="font-size:22px; color:var(--text-muted);"></i>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Subir foto</div>
+              </div>
+            </div>
+            <input type="file" id="profilePicFileInput" accept="image/*" style="display:none;" onchange="handlePhotoUpload(this)">
+          </div>
+
+          <label class="field-label">Nombre de usuario (máx. 14 caracteres)</label>
+          <div class="input-with-prefix">
+            <span class="input-prefix">@</span>
+            <input type="text" class="input-field" id="registerUsernameInput" placeholder="usuario" maxlength="14" required oninput="sanitizeUsernameField(this)">
+          </div>
+
+          <label class="field-label">Correo electrónico</label>
+          <input type="email" class="input-field" id="registerEmailInput" placeholder="usuario@correo.com" required>
+
+          <label class="field-label">Contraseña</label>
+          <input type="password" class="input-field" id="registerPasswordInput" placeholder="••••••••" required minlength="6">
+
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button type="button" class="btn-nav-link" onclick="switchAuthMode('register')">Volver</button>
+            <button type="submit" class="btn-full btn-primary" style="flex:1;">Crear mi cuenta</button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FORGOT PASSWORD MODAL -->
+  <div class="modal-overlay" id="forgotPasswordModal" onclick="if(event.target===this) closeForgotPasswordModal()">
+    <div class="modal-card-box" style="width: min(420px, 95vw);">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeForgotPasswordModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-title-head">Restablecer contraseña</div>
+      <div class="modal-subtitle">Ingresá tu correo electrónico registrado y te enviaremos un enlace seguro para restablecer tu contraseña.</div>
+
+      <form onsubmit="handleSendResetPasswordEmail(event)">
+        <label class="field-label">Correo electrónico registrado</label>
+        <input type="email" class="input-field" id="resetPasswordEmailInput" placeholder="usuario@correo.com" required>
+
+        <button type="submit" class="btn-full btn-primary" style="margin-top:10px;">
+          <i class="fa-solid fa-paper-plane"></i> Enviar enlace de restablecimiento
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CHANGE PASSWORD MODAL -->
+  <div class="modal-overlay" id="changePasswordModal" onclick="if(event.target===this) closeChangePasswordModal()">
+    <div class="modal-card-box" style="width: min(420px, 95vw);">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeChangePasswordModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-title-head">Cambiar mi contraseña</div>
+      <div class="modal-subtitle">Actualizá tu contraseña o enviate un enlace seguro a tu correo electrónico.</div>
+
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <button type="button" class="btn-full btn-secondary" onclick="handleSendLoggedUserPasswordReset()" style="background:var(--bg-card); border:1px solid var(--border-color); color:#fff; padding:12px;">
+          <i class="fa-solid fa-envelope" style="color:var(--accent-blue);"></i> Enviarme enlace a mi correo
+        </button>
+
+        <div class="divider-or">o cambiarla directamente aquí</div>
+
+        <form onsubmit="handleUpdatePasswordDirectSubmit(event)">
+          <label class="field-label">Contraseña actual</label>
+          <input type="password" class="input-field" id="currentPasswordInput" placeholder="••••••••" required minlength="6">
+
+          <label class="field-label">Nueva contraseña</label>
+          <input type="password" class="input-field" id="newPasswordInput" placeholder="••••••••" required minlength="6">
+
+          <label class="field-label">Confirmar nueva contraseña</label>
+          <input type="password" class="input-field" id="confirmNewPasswordInput" placeholder="••••••••" required minlength="6">
+
+          <button type="submit" class="btn-full btn-primary" style="margin-top:10px;">Guardar nueva contraseña</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT BIO MODAL -->
+  <div class="modal-overlay" id="editBioModal" onclick="if(event.target===this) closeEditBioModal()">
+    <div class="modal-card-box" style="width: min(420px, 95vw);">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeEditBioModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-title-head">Editar biografía</div>
+      <div class="modal-subtitle">Escribí una descripción sobre vos (máx. 100 caracteres).</div>
+
+      <form onsubmit="handleSaveBioSubmit(event)">
+        <label class="field-label">Tu biografía</label>
+        <input type="text" class="input-field" id="bioInputText" placeholder="Escribí sobre vos..." maxlength="100">
+
+        <button type="submit" class="btn-full btn-primary" style="margin-top:10px;">Guardar biografía</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Profile Modal -->
+  <div class="modal-overlay" id="userProfileModal" onclick="if(event.target===this) closeUserProfileModal()">
+    <div class="profile-modal-box">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeUserProfileModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="profile-header-card">
+        <div style="position:relative;">
+          <div class="profile-avatar-large" id="profileAvatar">B</div>
+          <button class="btn-avatar-edit" id="profileChangePhotoBtn" style="display:none;" onclick="triggerProfilePicChange()" title="Cambiar foto de perfil">
+            <i class="fa-solid fa-camera"></i>
+          </button>
+          <input type="file" id="profilePicChangeInput" accept="image/*" style="display:none;" onchange="handleProfilePhotoChange(this)">
+        </div>
+
+        <div class="profile-info">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div class="profile-handle" id="profileHandle">@usuario</div>
+            <button class="btn-edit-handle" id="profileEditHandleBtn" style="display:none;" onclick="openEditUsernameModal()" title="Editar @usuario (2 primeros cambios inmediatos, luego 1 cada 7 días)">
+              <i class="fa-solid fa-pen"></i>
+            </button>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+            <div class="profile-bio" id="profileBio"></div>
+            <button class="btn-edit-handle" id="profileEditBioBtn" style="display:none;" onclick="openEditBioModal()" title="Editar biografía">
+              <i class="fa-solid fa-pencil" style="font-size:10px;"></i>
+            </button>
+          </div>
+
+          <div class="profile-stats">
+            <div><span id="profileRatedCount">0</span> líneas calificadas</div>
+            <div class="stat-clickable" onclick="openUserListModal('followers')"><span id="profileFollowersCount">0</span> seguidores</div>
+            <div class="stat-clickable" onclick="openUserListModal('following')"><span id="profileFollowingCount">0</span> seguidos</div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+          <button class="btn-follow" id="profileFollowBtn" onclick="toggleFollowUser()">Seguir</button>
+          <button class="btn-secondary-sm" id="profileChangePasswordBtn" style="display:none;" onclick="openChangePasswordModal()">
+            <i class="fa-solid fa-key"></i> Cambiar contraseña
+          </button>
+        </div>
+      </div>
+
+      <div style="font-weight:800; font-size:16px; margin-bottom:16px;">
+        Bitácora de portadas y reseñas
+      </div>
+
+      <div class="feed-container" id="userReviewsGrid">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Username Modal -->
+  <div class="modal-overlay" id="editUsernameModal" onclick="if(event.target===this) closeEditUsernameModal()">
+    <div class="modal-card-box" style="width: min(420px, 95vw);">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeEditUsernameModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-title-head">Editar nombre de usuario</div>
+      <div class="modal-subtitle">Primeros 2 cambios inmediatos. Luego se bloquea por 7 días.</div>
+
+      <form onsubmit="handleUsernameEditSubmit(event)">
+        <label class="field-label">Nuevo usuario (máx. 14 caracteres)</label>
+        <div class="input-with-prefix">
+          <span class="input-prefix">@</span>
+          <input type="text" class="input-field" id="newUsernameInput" placeholder="nuevo" maxlength="14" required oninput="sanitizeUsernameField(this)">
+        </div>
+
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;" id="usernameCooldownInfo">
+          <!-- Dynamic cooldown info -->
+        </div>
+
+        <button type="submit" class="btn-full btn-primary" id="saveUsernameBtn">Guardar cambios</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Followers & Following Management Modal -->
+  <div class="modal-overlay" id="userListModal" onclick="if(event.target===this) closeUserListModal()">
+    <div class="modal-card-box" style="width: min(520px, 95vw);">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeUserListModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div class="modal-title-head" id="userListModalTitle">Lista de conexiones</div>
+      <div class="tabs-group" style="margin-bottom:16px;">
+        <button class="tab-btn active" id="userListTabFollowers" onclick="switchUserListTab('followers')">Seguidores (<span id="userListFollowersCount">0</span>)</button>
+        <button class="tab-btn" id="userListTabFollowing" onclick="switchUserListTab('following')">Seguidos (<span id="userListFollowingCount">0</span>)</button>
+      </div>
+
+      <div id="userListItemsContainer" class="feed-container" style="max-height: 360px; overflow-y: auto;">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer"></div>
+
+  <!-- Simplified Footer with Credits & Email Contact -->
+  <footer>
+    <p>Desarrollado por <strong>TIVDA / Tecnologías Integradas de VDA</strong></p>
+    <p style="margin-top:6px;">Contacto: <a href="mailto:tecnologiasintegradasdevda@gmail.com">tecnologiasintegradasdevda@gmail.com</a></p>
+  </footer>
+
+  <!-- Real Firebase 10 SDK via CDN -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, setDoc, doc, updateDoc, deleteDoc, arrayUnion, arrayRemove, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD84-crNNlgGerngYjzph4M-QWxTus5Wkg",
+      authDomain: "bondibase.firebaseapp.com",
+      projectId: "bondibase",
+      storageBucket: "bondibase.firebasestorage.app",
+      messagingSenderId: "188644023327",
+      appId: "1:188644023327:web:fd5743c5bdd147ac7e492a",
+      measurementId: "G-ND9WT1MEL6"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    window.db = getFirestore(app);
+    window.auth = getAuth(app);
+    window.googleProvider = new GoogleAuthProvider();
+
+    // Export SDK functions to window for app.js
+    window.fb = {
+      signInWithPopup,
+      signOut,
+      onAuthStateChanged,
+      createUserWithEmailAndPassword,
+      signInWithEmailAndPassword,
+      sendPasswordResetEmail,
+      updatePassword,
+      reauthenticateWithCredential,
+      EmailAuthProvider,
+      collection,
+      addDoc,
+      getDocs,
+      onSnapshot,
+      query,
+      orderBy,
+      setDoc,
+      doc,
+      updateDoc,
+      deleteDoc,
+      arrayUnion,
+      arrayRemove,
+      where
+    };
+
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
