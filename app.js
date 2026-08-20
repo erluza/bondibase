@@ -357,7 +357,7 @@ function initRealtimeUsers() {
         try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
       }
 
-      renderMain();
+      renderMain(false);
     }, (err) => {
       console.warn("Firestore users sync:", err);
     });
@@ -398,6 +398,10 @@ function initRealtimeFeed() {
         .filter(r => !isBlacklistedUser(r.userHandle));
       
       remoteRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
+      
+      const prevJson = JSON.stringify(reviewsData);
+      const nextJson = JSON.stringify(remoteRevs);
+      
       reviewsData = remoteRevs;
       try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
@@ -411,7 +415,9 @@ function initRealtimeFeed() {
       }
       try { localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData))); } catch(e) {}
 
-      renderMain();
+      if (prevJson !== nextJson) {
+        renderMain(false);
+      }
     }, (err) => {
       console.warn("Firestore snapshot info:", err);
     });
@@ -1137,7 +1143,7 @@ function switchTab(tabName) {
 
   searchInput.value = '';
   renderServiceStatusNotice();
-  renderMain();
+  renderMain(true);
 }
 
 function handleMobileCenterNavClick() {
@@ -1148,7 +1154,7 @@ function handleMobileCenterNavClick() {
   }
 }
 
-function renderMain() {
+function renderMain(animate = false) {
   const gridContainer = document.getElementById('gridContainer');
   const feedContainer = document.getElementById('feedContainer');
   const countIndicator = document.getElementById('countIndicator');
@@ -1157,7 +1163,7 @@ function renderMain() {
   if (activeTab === 'grid') {
     gridContainer.style.display = 'grid';
     feedContainer.style.display = 'none';
-    triggerFadeIn(gridContainer);
+    if (animate) triggerFadeIn(gridContainer);
 
     let filtered = getFilteredAndSortedLines();
     gridContainer.innerHTML = filtered.map(item => cardHtml(item.line, item.originalIdx)).join('');
@@ -1166,7 +1172,7 @@ function renderMain() {
   } else if (activeTab === 'feed') {
     gridContainer.style.display = 'none';
     feedContainer.style.display = 'flex';
-    triggerFadeIn(feedContainer);
+    if (animate) triggerFadeIn(feedContainer);
 
     if (searchVal) {
       renderUserSearchResultFeed(feedContainer, countIndicator, searchVal);
@@ -1177,18 +1183,18 @@ function renderMain() {
   } else if (activeTab === 'my') {
     gridContainer.style.display = 'none';
     feedContainer.style.display = 'flex';
-    triggerFadeIn(feedContainer);
+    if (animate) triggerFadeIn(feedContainer);
 
     renderUserFeed(feedContainer, countIndicator, currentUser ? currentUser.handle : null);
   }
 }
 
 function handleSearch(val) {
-  renderMain();
+  renderMain(false);
 }
 
 function applyFilters() {
-  renderMain();
+  renderMain(false);
 }
 
 // User Search in Feed Tab
