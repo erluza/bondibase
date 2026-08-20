@@ -1632,3 +1632,30 @@ footer a:hover {
     margin-left: 0;
   }
 }
+
+/* Transporte Ya Integration Button */
+.btn-transporte-ya {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.btn-transporte-ya:hover {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #93c5fd;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
+}

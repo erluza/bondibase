@@ -1435,6 +1435,15 @@ async function toggleFollowReviewAuthor(targetHandle) {
   renderMain();
 }
 
+function getTransporteYaUrl(lineaNumero) {
+  if (!lineaNumero) return null;
+  const str = String(lineaNumero).trim();
+  if (!/^[0-9]{1,3}$/.test(str)) {
+    return null;
+  }
+  return `https://transporteya.com.ar/app/${str}`;
+}
+
 // Movie Poster & Line Profile Modal Logic
 function showPoster(idx) {
   const l = LINEAS_DATA[idx];
@@ -1462,6 +1471,23 @@ function showPoster(idx) {
   document.getElementById('pModalAvgStars').textContent = `${stats.avg} ★`;
   document.getElementById('pModalRatingStars').innerHTML = renderStarsHtml(Math.round(stats.avg));
   document.getElementById('pModalTotalReviewsCount').textContent = `${stats.count} reseña${stats.count === 1 ? '' : 's'} en Bondibase`;
+
+  // Transporte Ya Direct Integration Link
+  const tyUrl = getTransporteYaUrl(l.numero);
+  const tyContainer = document.getElementById('transporteYaArea');
+  if (tyContainer) {
+    if (tyUrl) {
+      tyContainer.style.display = 'block';
+      tyContainer.innerHTML = `
+        <a href="${tyUrl}" target="_blank" rel="noopener" class="btn-transporte-ya" title="Abrir recorrido y colectivos en vivo en Transporte Ya!">
+          <i class="fa-solid fa-location-dot"></i> Ver Línea ${esc(stripLoc(l.numero))} en Transporte Ya! <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:11px;"></i>
+        </a>
+      `;
+    } else {
+      tyContainer.style.display = 'none';
+      tyContainer.innerHTML = '';
+    }
+  }
 
   if (currentUser) {
     const existing = reviewsData.find(r => r.lineaNumero === l.numero && r.userHandle === currentUser.handle);
