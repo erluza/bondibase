@@ -1461,7 +1461,13 @@ footer a:hover {
   .modal-split-layout {
     flex-direction: column;
     padding: 16px;
-    max-height: 95vh;
+    max-height: 92vh;
+    overflow-y: auto !important;
+  }
+
+  .poster-details-panel {
+    overflow-y: visible !important;
+    padding-right: 0;
   }
 
   .poster-card {
