@@ -608,6 +608,7 @@ body {
   transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.card:hover .review-poster-mini-card,
 .review-poster-mini-card:hover {
   transform: scale(1.05);
 }

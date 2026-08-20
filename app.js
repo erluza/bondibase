@@ -766,7 +766,7 @@ function getLineStats(lineaNumero) {
 }
 
 function cardHtml(l, idx) {
-  const b = badgeHtml(l);
+  const miniPoster = miniPosterHtml(l);
   const tag = '<span class="tag ' + l.administracion + '">' + l.administracion + '</span>';
   const stats = getLineStats(l.numero);
   
@@ -776,7 +776,7 @@ function cardHtml(l, idx) {
 
   return `
     <div class="card" onclick="showPoster(${idx})" title="Ver portada de Línea ${esc(l.numero)}">
-      ${b}
+      ${miniPoster}
       <div class="num">Línea ${esc(l.numero)}</div>
       ${tag}
       ${ratingHtml}
