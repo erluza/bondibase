@@ -36,6 +36,8 @@ let activeUserListTab = 'followers';
 let authMode = 'login';
 let uploadedPhotoBase64 = null;
 let topZIndex = 300;
+let serviceAlertsMap = new Map();
+let serviceAlertsLoaded = false;
 
 // Spanish Months Array
 const MESES = [
@@ -77,6 +79,85 @@ function initApp() {
   switchTab('feed');
   setupPosterEngineListener();
   checkViralNoticeModal();
+  fetchServiceAlerts();
+}
+
+// ----------------------------------------------------
+// REAL-TIME TRANSIT SERVICE ALERTS ENGINE (CiudadDeBondis / PDB API)
+// ----------------------------------------------------
+async function fetchServiceAlerts() {
+  try {
+    const res = await fetch("https://api.ciudaddebondis.com.ar/api/alerts/pdb", { cache: "no-cache" });
+    if (!res.ok) throw new Error("Error obteniendo alertas");
+    const json = await res.json();
+    const data = json.data || [];
+
+    serviceAlertsMap.clear();
+    data.forEach(alerta => {
+      if (alerta.active && Array.isArray(alerta.lines_slugs)) {
+        alerta.lines_slugs.forEach(slug => {
+          const num = parseInt(slug, 10);
+          if (!isNaN(num)) {
+            const keyStr = String(num);
+            if (!serviceAlertsMap.has(keyStr)) {
+              serviceAlertsMap.set(keyStr, alerta);
+            }
+          }
+        });
+      }
+    });
+    serviceAlertsLoaded = true;
+    renderServiceStatusNotice();
+  } catch (err) {
+    console.warn("Alertas del servicio:", err);
+    serviceAlertsLoaded = true;
+    renderServiceStatusNotice();
+  }
+}
+
+function renderServiceStatusNotice() {
+  const banner = document.getElementById('serviceStatusBanner');
+  if (!banner) return;
+
+  if (activeTab !== 'grid') {
+    banner.style.display = 'none';
+    return;
+  }
+
+  banner.style.display = 'flex';
+
+  if (!serviceAlertsLoaded) {
+    banner.className = 'service-status-banner status-green';
+    banner.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px;">
+        <i class="fa-solid fa-spinner fa-spin" style="font-size:16px;"></i>
+        <span>Consultando el estado de servicio de las líneas en tiempo real...</span>
+      </div>
+    `;
+    return;
+  }
+
+  const affectedCount = serviceAlertsMap.size;
+
+  if (affectedCount === 0) {
+    banner.className = 'service-status-banner status-green';
+    banner.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px;">
+        <i class="fa-solid fa-circle-check" style="font-size:18px; color:#4ade80;"></i>
+        <span><strong>Estado del servicio:</strong> Todas las líneas están operando con normalidad.</span>
+      </div>
+      <a href="https://parodebondis.com.ar/" target="_blank" rel="noopener">Ver informe en Paro de Bondis <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+    `;
+  } else {
+    banner.className = 'service-status-banner status-yellow';
+    banner.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px;">
+        <i class="fa-solid fa-triangle-exclamation" style="font-size:18px; color:#facc15;"></i>
+        <span><strong>Estado del servicio:</strong> Alertas o demoras reportadas en ${affectedCount} línea${affectedCount === 1 ? '' : 's'} del AMBA.</span>
+      </div>
+      <a href="https://parodebondis.com.ar/" target="_blank" rel="noopener">Ver reporte de demoras <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+    `;
+  }
 }
 
 // ----------------------------------------------------
@@ -991,6 +1072,7 @@ function switchTab(tabName) {
   }
 
   searchInput.value = '';
+  renderServiceStatusNotice();
   renderMain();
 }
 
