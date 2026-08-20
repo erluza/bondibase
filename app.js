@@ -197,7 +197,7 @@ function initRealtimeFeed() {
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(r => !isBlacklistedUser(r.userHandle));
       
-      remoteRevs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+      remoteRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
       reviewsData = remoteRevs;
       try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
@@ -692,7 +692,8 @@ function getContrastColor(hexColor) {
 // Friendly Spanish Date Formatting
 function formatDateFriendly(dateStr) {
   if (!dateStr) return 'Reciente';
-  const parts = dateStr.split('-');
+  const cleanDateStr = String(dateStr).includes('T') ? String(dateStr).split('T')[0] : String(dateStr);
+  const parts = cleanDateStr.split('-');
   if (parts.length !== 3) return dateStr;
   const year = parts[0];
   const monthIdx = parseInt(parts[1], 10) - 1;
@@ -702,6 +703,27 @@ function formatDateFriendly(dateStr) {
     return `${day} de ${MESES[monthIdx]} de ${year}`;
   }
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+// Precise Millisecond Timestamp Resolver for Chronological Feed Sorting
+function getReviewTimestamp(r) {
+  if (!r) return 0;
+  if (typeof r.timestamp === 'number' && !isNaN(r.timestamp) && r.timestamp > 0) {
+    return r.timestamp;
+  }
+  if (r.createdAt) {
+    const t = new Date(r.createdAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (r.date) {
+    const t = new Date(r.date).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (r.id && typeof r.id === 'string' && r.id.startsWith('rev-')) {
+    const ts = parseInt(r.id.replace('rev-', ''), 10);
+    if (!isNaN(ts) && ts > 0) return ts;
+  }
+  return 0;
 }
 
 function esc(str) {
@@ -1018,6 +1040,8 @@ function renderCommunityFeed(container, indicator) {
   const myFollows = myHandle ? (followsData[myHandle] || []) : [];
 
   let html = '';
+  const validRevs = reviewsData.filter(r => !isBlacklistedUser(r.userHandle));
+  validRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
   if (!currentUser || myFollows.length === 0) {
     indicator.textContent = `Explorá las reseñas más recientes de la comunidad`;
@@ -1031,22 +1055,18 @@ function renderCommunityFeed(container, indicator) {
       </div>
     `;
 
-    const validRevs = reviewsData.filter(r => !isBlacklistedUser(r.userHandle));
-
     if (validRevs.length === 0) {
       html += `<div style="text-align:center; padding:40px; color:var(--text-muted);">Aún no hay reseñas publicadas en la comunidad. Sé el primero en calificar una línea en la pestaña Líneas.</div>`;
       container.innerHTML = html;
       return;
     }
 
-    const recs = [...validRevs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6);
+    const recs = validRevs.slice(0, 10);
     html += recs.map(r => renderReviewCardItem(r)).join('');
 
   } else {
     indicator.textContent = `Mostrando reseñas recientes de los usuarios que seguís y la comunidad`;
-    const validRevs = reviewsData.filter(r => !isBlacklistedUser(r.userHandle));
-    const sortedRevs = [...validRevs].sort((a, b) => new Date(b.date) - new Date(a.date));
-    html += sortedRevs.map(r => renderReviewCardItem(r)).join('');
+    html += validRevs.map(r => renderReviewCardItem(r)).join('');
   }
 
   container.innerHTML = html;
@@ -1056,6 +1076,7 @@ function renderCommunityFeed(container, indicator) {
 function renderUserFeed(container, indicator, handle) {
   if (!handle || isBlacklistedUser(handle)) return;
   const userRevs = reviewsData.filter(r => r.userHandle === handle);
+  userRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
   indicator.textContent = `Portadas y reseñas calificadas por ${handle} (${userRevs.length} en total)`;
 
   if (userRevs.length === 0) {
@@ -1316,6 +1337,7 @@ async function submitReview() {
   const oldLikes = existing ? (existing.likes || 0) : 0;
   const oldLikedBy = existing ? (existing.likedBy || []) : [];
 
+  const nowTs = Date.now();
   const reviewDoc = {
     id: docId,
     lineaNumero: currentModalLine.numero,
@@ -1325,15 +1347,17 @@ async function submitReview() {
     text: text,
     likes: oldLikes,
     likedBy: oldLikedBy,
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString(),
+    timestamp: nowTs
   };
 
   const existingIdx = reviewsData.findIndex(r => r.id === docId);
   if (existingIdx !== -1) {
     reviewsData[existingIdx] = reviewDoc;
   } else {
-    reviewsData.unshift(reviewDoc);
+    reviewsData.push(reviewDoc);
   }
+  reviewsData.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
   try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
