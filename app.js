@@ -507,9 +507,17 @@ function handleProfilePhotoChange(input) {
       currentUser.photo = newBase64;
       if (usersMap[currentUser.handle]) usersMap[currentUser.handle].photo = newBase64;
 
+      // Sync new photo to all existing reviews by this user
+      reviewsData.forEach(r => {
+        if (r.userHandle === currentUser.handle) {
+          r.userPhoto = newBase64;
+        }
+      });
+
       try {
         localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
         localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+        localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
       } catch(e) {}
 
       if (window.db && window.fb) {
@@ -523,7 +531,7 @@ function handleProfilePhotoChange(input) {
       renderHeaderAuth();
       openUserProfile(currentUser.handle);
       renderMain();
-      showToast('¡Foto de perfil actualizada!');
+      showToast('¡Foto de perfil actualizada en tus reseñas!');
     };
     img.src = e.target.result;
   };
@@ -854,7 +862,7 @@ async function logoutUser() {
 // Avatar HTML Renderer (Base64 Image or Initial Fallback)
 function renderAvatarHtml(handle, photoUrl, sizePx = 28) {
   const uData = usersMap[handle] || {};
-  const finalPhoto = photoUrl || uData.photo;
+  const finalPhoto = uData.photo || photoUrl || (currentUser && currentUser.handle === handle ? currentUser.photo : null);
   const initial = handle ? handle.replace('@', '').charAt(0).toUpperCase() : 'U';
 
   if (finalPhoto) {
