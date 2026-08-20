@@ -749,15 +749,15 @@ body {
 .modal-split-layout {
   display: flex;
   gap: 24px;
-  max-width: 900px;
+  max-width: 920px;
   width: 100%;
-  max-height: 90vh;
+  max-height: 92vh;
   background: #111827;
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
   box-shadow: var(--shadow-lg);
-  overflow-y: auto;
+  overflow: hidden;
   position: relative;
   animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -860,9 +860,29 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   color: var(--text-main);
   min-width: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.poster-details-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.poster-details-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.poster-details-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.poster-details-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .panel-header-title {
