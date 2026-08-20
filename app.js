@@ -1575,6 +1575,13 @@ function showPoster(idx) {
   updateCharCounter();
   renderLineReviewsList(l.numero);
 
+  // Populate Letterboxd-style Rating Distribution Histogram Chart
+  const lineRevs = reviewsData.filter(r => r.lineaNumero === l.numero && !isBlacklistedUser(r.userHandle));
+  const pHistContainer = document.getElementById('pModalHistogramArea');
+  if (pHistContainer) {
+    pHistContainer.innerHTML = renderRatingHistogramHtml(lineRevs, 'DISTRIBUCIÓN DE CALIFICACIONES DE LA LÍNEA');
+  }
+
   openModal('posterModal');
 }
 
@@ -1880,6 +1887,12 @@ function openUserProfile(handle) {
     }
   }
 
+  // Populate User Rating Histogram Distribution
+  const uHistContainer = document.getElementById('userProfileHistogramArea');
+  if (uHistContainer) {
+    uHistContainer.innerHTML = renderRatingHistogramHtml(userRevs, `DISTRIBUCIÓN DE CALIFICACIONES DE ${handle.toUpperCase()}`);
+  }
+
   const grid = document.getElementById('userReviewsGrid');
   if (userRevs.length === 0) {
     grid.innerHTML = `<div style="text-align:center; padding:30px; color:var(--text-muted);">Este usuario no ha calificado ninguna línea aún.</div>`;
@@ -1888,6 +1901,57 @@ function openUserProfile(handle) {
   }
 
   openModal('userProfileModal');
+}
+
+// Letterboxd-Style Rating Distribution Histogram Component Generator
+function renderRatingHistogramHtml(revs, title = 'DISTRIBUCIÓN DE CALIFICACIONES') {
+  if (!revs || revs.length === 0) {
+    return '';
+  }
+
+  const RATING_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
+  const counts = { 1.0: 0, 1.5: 0, 2.0: 0, 2.5: 0, 3.0: 0, 3.5: 0, 4.0: 0, 4.5: 0, 5.0: 0 };
+
+  revs.forEach(r => {
+    const val = Math.round((r.stars || 5) * 2) / 2;
+    const clamped = Math.max(1.0, Math.min(5.0, val));
+    counts[clamped] = (counts[clamped] || 0) + 1;
+  });
+
+  const total = revs.length;
+  const maxCount = Math.max(1, ...Object.values(counts));
+
+  const barsHtml = RATING_STEPS.map(step => {
+    const count = counts[step] || 0;
+    const heightPct = count > 0 ? Math.max(12, Math.round((count / maxCount) * 100)) : 4;
+    const pctStr = total > 0 ? Math.round((count / total) * 100) : 0;
+    const titleText = `${step.toFixed(1)} ★: ${count} reseña${count === 1 ? '' : 's'} (${pctStr}%)`;
+
+    return `
+      <div class="histogram-bar-col" title="${titleText}">
+        <div class="histogram-bar-fill" style="height: ${heightPct}%;">
+          ${count > 0 ? `<span class="bar-count-tooltip">${count}</span>` : ''}
+        </div>
+        <span class="histogram-step-label">${step % 1 === 0 ? step.toFixed(0) : '.5'}</span>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="rating-histogram-card">
+      <div class="histogram-header-row">
+        <span class="histogram-title">${title}</span>
+        <span class="histogram-count-badge">${total} reseña${total === 1 ? '' : 's'}</span>
+      </div>
+      <div class="histogram-chart-wrapper">
+        <div class="histogram-star-edge left">★</div>
+        <div class="histogram-bars-container">
+          ${barsHtml}
+        </div>
+        <div class="histogram-star-edge right">★★★★★</div>
+      </div>
+    </div>
+  `;
 }
 
 function closeUserProfileModal() {

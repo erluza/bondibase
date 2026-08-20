@@ -1721,3 +1721,126 @@ footer a:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
 }
+
+/* Letterboxd-Style Rating Distribution Histogram Component */
+.rating-histogram-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  margin: 14px 0;
+  user-select: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.histogram-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.histogram-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.histogram-count-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.histogram-chart-wrapper {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 85px;
+  padding-top: 14px;
+}
+
+.histogram-star-edge {
+  font-size: 11px;
+  color: var(--accent-yellow);
+  font-weight: 800;
+  white-space: nowrap;
+  padding-bottom: 2px;
+}
+
+.histogram-star-edge.left {
+  letter-spacing: 1px;
+}
+
+.histogram-star-edge.right {
+  letter-spacing: 1px;
+}
+
+.histogram-bars-container {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px;
+  height: 100%;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 2px;
+}
+
+.histogram-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  cursor: pointer;
+}
+
+.histogram-bar-fill {
+  width: 100%;
+  max-width: 24px;
+  background: #475569;
+  border-radius: 4px 4px 0 0;
+  transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.histogram-bar-col:hover .histogram-bar-fill {
+  background: var(--accent-blue);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+}
+
+.bar-count-tooltip {
+  position: absolute;
+  top: -18px;
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #fbbf24;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.histogram-bar-col:hover .bar-count-tooltip {
+  opacity: 1;
+}
+
+.histogram-step-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.histogram-bar-col:hover .histogram-step-label {
+  color: #ffffff;
+}
