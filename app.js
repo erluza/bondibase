@@ -782,7 +782,7 @@ function getLineStats(lineaNumero) {
 }
 
 function cardHtml(l, idx) {
-  const b = badgeHtml(l);
+  const miniPoster = miniPosterHtml(l, false);
   const tag = '<span class="tag ' + l.administracion + '">' + l.administracion + '</span>';
   const stats = getLineStats(l.numero);
   
@@ -792,7 +792,7 @@ function cardHtml(l, idx) {
 
   return `
     <div class="card" onclick="showPoster(${idx})" title="Ver portada de Línea ${esc(l.numero)}">
-      ${b}
+      ${miniPoster}
       <div class="num">Línea ${esc(l.numero)}</div>
       ${tag}
       ${ratingHtml}
@@ -800,7 +800,7 @@ function cardHtml(l, idx) {
   `;
 }
 
-function miniPosterHtml(l) {
+function miniPosterHtml(l, clickable = true) {
   if (!l) return '';
   const c = l.colores || {};
   const bg = buildBg(l, 14, 38);
@@ -811,8 +811,10 @@ function miniPosterHtml(l) {
   const botContrast = getContrastColor(botColor);
   const textContrast = c.texto || botContrast;
 
+  const clickAttr = clickable ? `onclick="openPosterByNumero('${l.numero}')"` : `style="pointer-events:none;"`;
+
   return `
-    <div class="review-poster-mini-card" style="background:${bg}; border-top-color:${c.borde || '#000'};" onclick="openPosterByNumero('${l.numero}')" title="Ver portada de Línea ${esc(l.numero)}">
+    <div class="review-poster-mini-card" style="background:${bg}; border-top-color:${c.borde || '#000'};" ${clickAttr} title="Ver portada de Línea ${esc(l.numero)}">
       <div class="mini-poster-tag" style="color: ${topContrast};">${esc(l.administracion)}</div>
       <div class="mini-poster-num" style="color: ${textContrast};">${esc(stripLoc(l.numero))}</div>
       <div class="mini-poster-op" style="color: ${botContrast};">${esc(l.operadora)}</div>
