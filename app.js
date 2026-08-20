@@ -107,10 +107,54 @@ window.addEventListener('firebase-ready', () => {
               userDocData = userSnap.data();
               console.log("[DEBUG AUTH] ¡Documento original recuperado con éxito por UID!", userDocData);
             } else {
-              console.log("[DEBUG AUTH] No existe documento en users/", user.uid, ". Se creará un documento de perfil inicial.");
+              console.log("[DEBUG AUTH] No existe documento directo en users/", user.uid, ". Buscando perfil antiguo legacy por email/handle...");
+              
+              // 1. Check in memory usersMap by email
+              let legacyUser = null;
+              if (user.email) {
+                legacyUser = Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase());
+              }
+
+              // 2. If not found in memory, check by derived handle
+              if (!legacyUser) {
+                let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
+                let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
+                let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
+                if (usersMap[derivedHandle]) {
+                  legacyUser = usersMap[derivedHandle];
+                }
+              }
+
+              // 3. If not found in memory, query Firestore users collection by email
+              if (!legacyUser && user.email && window.fb.query && window.fb.where) {
+                try {
+                  const q = window.fb.query(window.fb.collection(window.db, "users"), window.fb.where("email", "==", user.email));
+                  const qSnap = await window.fb.getDocs(q);
+                  if (!qSnap.empty) {
+                    legacyUser = qSnap.docs[0].data();
+                  }
+                } catch(e) {
+                  console.warn("Error buscando legacy por email:", e);
+                }
+              }
+
+              if (legacyUser) {
+                console.log("[DEBUG MIGRATION] ¡Perfil antiguo legacy encontrado! Migrando perfil a users/" + user.uid, legacyUser);
+                userDocData = {
+                  ...legacyUser,
+                  uid: user.uid,
+                  email: user.email || legacyUser.email
+                };
+
+                // Save migrated profile into users/{user.uid}
+                await window.fb.setDoc(userDocRef, userDocData, { merge: true }).catch(e => console.warn(e));
+                showToast(`¡Perfil ${userDocData.handle} recuperado y migrado con éxito!`);
+              } else {
+                console.log("[DEBUG AUTH] No se encontró perfil antiguo. Se creará un documento de perfil inicial.");
+              }
             }
           } catch (err) {
-            console.warn("[DEBUG AUTH] Error leyendo documento por UID:", err);
+            console.warn("[DEBUG AUTH] Error leyendo o migrando documento por UID:", err);
           }
         }
 
