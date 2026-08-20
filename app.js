@@ -1,4 +1,4 @@
-/* bondibase - Production App Logic (Real-time Firebase Firestore Engine + Instant Cache) */
+/* bondibase - Production App Logic (Strict Firebase Auth user.uid Primary Key Engine) */
 
 // Blacklist of Legacy Mock/Test Handles to Completely Ignore & Hide
 const BLACKLISTED_HANDLES = new Set([
@@ -24,7 +24,8 @@ function sanitizeUsernameField(inputEl) {
 // In-Memory App State
 let currentUser = null;
 let reviewsData = [];
-let usersMap = {};
+let usersMap = {}; // Maps handle -> userDoc
+let usersByUidMap = {}; // Maps uid -> userDoc
 let followsData = {};
 let likesData = new Set();
 let activeTab = 'feed';
@@ -42,7 +43,7 @@ const MESES = [
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
 ];
 
-// Initialize Storage & App (Instant Load from Local Cache + Realtime Firebase Sync)
+// Initialize Storage & App
 function initApp() {
   try {
     const storedUsersMap = JSON.parse(localStorage.getItem('bondibase_users')) || {};
@@ -77,62 +78,86 @@ function initApp() {
   setupPosterEngineListener();
 }
 
-// Listen to Firebase Ready Event
+// ----------------------------------------------------
+// ROBUST ONAUTHSTATECHANGED OBSERVER (STRICT user.uid LOCK)
+// ----------------------------------------------------
 window.addEventListener('firebase-ready', () => {
   initRealtimeUsers();
   initRealtimeFeed();
 
   if (window.auth && window.fb) {
     window.fb.onAuthStateChanged(window.auth, async (user) => {
+      console.log("==========================================");
+      console.log("[DEBUG AUTH] Estado de Autenticación de Firebase activo");
+
       if (user) {
-        let cleanEmailName = user.email ? user.email.split('@')[0] : 'user';
-        let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-        let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-        const isGoogle = user.providerData && user.providerData.some(p => p.providerId === 'google.com');
+        console.log("[DEBUG AUTH] User UID activo:", user.uid);
+        console.log("[DEBUG AUTH] Email registrado:", user.email);
+        console.log("[DEBUG AUTH] Es cuenta anónima:", user.isAnonymous);
+        console.log("[DEBUG AUTH] Proveedores vinculados:", user.providerData ? user.providerData.map(p => p.providerId) : []);
+        console.log("==========================================");
 
-        if (!isBlacklistedUser(derivedHandle)) {
-          let userHandle = derivedHandle;
-          
-          if (usersMap[derivedHandle]) {
-            userHandle = derivedHandle;
-          } else {
-            const existingHandle = Object.keys(usersMap).find(h => usersMap[h].email === user.email);
-            if (existingHandle) userHandle = existingHandle;
+        // Fetch user document from Firestore strictly by user.uid
+        let userDocData = null;
+        if (window.db) {
+          try {
+            const userDocRef = window.fb.doc(window.db, "users", user.uid);
+            const userSnap = await window.fb.getDoc(userDocRef);
+            if (userSnap && userSnap.exists()) {
+              userDocData = userSnap.data();
+              console.log("[DEBUG AUTH] ¡Documento original recuperado con éxito por UID!", userDocData);
+            } else {
+              console.log("[DEBUG AUTH] No existe documento en users/", user.uid, ". Se creará un documento de perfil inicial.");
+            }
+          } catch (err) {
+            console.warn("[DEBUG AUTH] Error leyendo documento por UID:", err);
           }
+        }
 
-          const existingData = usersMap[userHandle] || {};
+        if (userDocData) {
+          currentUser = {
+            uid: user.uid,
+            handle: userDocData.handle || ('@user_' + user.uid.substring(0, 5)),
+            email: user.email || userDocData.email,
+            photo: userDocData.photo || user.photoURL || null,
+            bio: userDocData.bio != null ? userDocData.bio : '',
+            isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
+            usernameChangesCount: userDocData.usernameChangesCount || 0,
+            lastUsernameChangeDate: userDocData.lastUsernameChangeDate || null,
+            following: userDocData.following || []
+          };
+        } else {
+          let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
+          let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
+          let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
 
           currentUser = {
-            handle: userHandle,
+            uid: user.uid,
+            handle: derivedHandle,
             email: user.email,
-            photo: existingData.photo || user.photoURL || null,
-            bio: existingData.bio || '',
-            isGoogleUser: isGoogle,
-            usernameChangesCount: existingData.usernameChangesCount || 0,
-            lastUsernameChangeDate: existingData.lastUsernameChangeDate || null,
-            following: existingData.following || []
+            photo: user.photoURL || null,
+            bio: '',
+            isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
+            usernameChangesCount: 0,
+            following: [],
+            createdAt: new Date().toISOString()
           };
 
-          try {
-            localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-          } catch(e) {}
-
           if (window.db) {
-            window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), {
-              handle: currentUser.handle,
-              email: currentUser.email,
-              photo: currentUser.photo,
-              bio: currentUser.bio,
-              isGoogleUser: currentUser.isGoogleUser,
-              usernameChangesCount: currentUser.usernameChangesCount,
-              createdAt: existingData.createdAt || new Date().toISOString()
-            }, { merge: true }).catch(e => console.warn(e));
+            await window.fb.setDoc(window.fb.doc(window.db, "users", user.uid), currentUser, { merge: true }).catch(e => console.warn(e));
           }
-
-          renderHeaderAuth();
-          renderMain();
         }
+
+        try {
+          localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+        } catch(e) {}
+
+        renderHeaderAuth();
+        renderMain();
+
       } else {
+        console.log("[DEBUG AUTH] Ningún usuario autenticado. Estado: Deslogeado.");
+        console.log("==========================================");
         currentUser = null;
         try { localStorage.removeItem('bondibase_user'); } catch(e) {}
         renderHeaderAuth();
@@ -142,25 +167,30 @@ window.addEventListener('firebase-ready', () => {
   }
 });
 
-// Realtime Firestore Users & Follows Listener
+// Realtime Firestore Users & Follows Listener (Mapping both handle and UID)
 function initRealtimeUsers() {
   if (!window.db || !window.fb) return;
   try {
     const q = window.fb.collection(window.db, "users");
     window.fb.onSnapshot(q, (snapshot) => {
       const remoteUsersMap = {};
+      const remoteUsersByUid = {};
       const newFollowsData = {};
 
       snapshot.docs.forEach(docSnap => {
         const data = docSnap.data();
+        const docUid = data.uid || docSnap.id;
         const handle = data.handle || docSnap.id;
+        
         if (!isBlacklistedUser(handle)) {
-          remoteUsersMap[handle] = data;
+          remoteUsersMap[handle] = { ...data, uid: docUid };
+          remoteUsersByUid[docUid] = { ...data, handle: handle };
           newFollowsData[handle] = Array.isArray(data.following) ? data.following.filter(h => !isBlacklistedUser(h)) : [];
         }
       });
 
       usersMap = remoteUsersMap;
+      usersByUidMap = remoteUsersByUid;
       followsData = newFollowsData;
 
       try {
@@ -168,8 +198,8 @@ function initRealtimeUsers() {
         localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
       } catch(e) {}
 
-      if (currentUser && usersMap[currentUser.handle]) {
-        const myData = usersMap[currentUser.handle];
+      if (currentUser && (usersByUidMap[currentUser.uid] || usersMap[currentUser.handle])) {
+        const myData = usersByUidMap[currentUser.uid] || usersMap[currentUser.handle];
         currentUser.photo = myData.photo || currentUser.photo;
         currentUser.bio = myData.bio != null ? myData.bio : currentUser.bio;
         currentUser.usernameChangesCount = myData.usernameChangesCount || 0;
@@ -185,6 +215,27 @@ function initRealtimeUsers() {
   } catch (e) {
     console.warn("Firestore users init:", e);
   }
+}
+
+// Precise Millisecond Timestamp Resolver for Chronological Feed Sorting
+function getReviewTimestamp(r) {
+  if (!r) return 0;
+  if (typeof r.timestamp === 'number' && !isNaN(r.timestamp) && r.timestamp > 0) {
+    return r.timestamp;
+  }
+  if (r.createdAt) {
+    const t = new Date(r.createdAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (r.date) {
+    const t = new Date(r.date).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (r.id && typeof r.id === 'string' && r.id.startsWith('rev-')) {
+    const ts = parseInt(r.id.replace('rev-', ''), 10);
+    if (!isNaN(ts) && ts > 0) return ts;
+  }
+  return 0;
 }
 
 // Realtime Firestore Reviews & Likes Listener
@@ -314,7 +365,7 @@ function handleProfilePhotoChange(input) {
 
       if (window.db && window.fb) {
         try {
-          await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), { photo: newBase64 }, { merge: true });
+          await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.uid), { photo: newBase64 }, { merge: true });
         } catch (err) {
           console.warn("Firestore photo update:", err);
         }
@@ -357,7 +408,7 @@ async function handleSaveBioSubmit(e) {
 
   if (window.db && window.fb) {
     try {
-      await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), { bio: newBio }, { merge: true });
+      await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.uid), { bio: newBio }, { merge: true });
     } catch (err) {
       console.warn("Firestore bio update:", err);
     }
@@ -404,56 +455,41 @@ function goToRegisterEmailForm() {
   document.getElementById('authModalSubtitle').textContent = 'Completá tus datos para crear tu cuenta:';
 }
 
-// Google Login Handler
+// ----------------------------------------------------
+// GOOGLE LOGIN HANDLER & ANONYMOUS ACCOUNT LINKING
+// ----------------------------------------------------
 async function loginWithGoogle() {
   if (window.fb && window.auth && window.googleProvider) {
     try {
+      console.log("[DEBUG AUTH] Iniciando Popup de inicio de sesión con Google...");
+      
+      // If current user is anonymous, link credentials instead of overwriting!
+      if (window.auth.currentUser && window.auth.currentUser.isAnonymous) {
+        const anonUser = window.auth.currentUser;
+        console.log("[DEBUG LINK] Usuario anónimo detectado (UID: " + anonUser.uid + "). Intentando linkWithCredential...");
+        const result = await window.fb.signInWithPopup(window.auth, window.googleProvider);
+        const credential = window.fb.GoogleAuthProvider.credentialFromResult(result);
+        const linkedResult = await window.fb.linkWithCredential(anonUser, credential);
+        console.log("[DEBUG LINK] ¡Cuenta anónima fusionada con éxito! UID final:", linkedResult.user.uid);
+        closeAuthModal();
+        return;
+      }
+
       const result = await window.fb.signInWithPopup(window.auth, window.googleProvider);
       const user = result.user;
       
-      let cleanEmailName = user.email ? user.email.split('@')[0] : (user.displayName || 'user');
-      let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-      let handle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-      
-      currentUser = {
-        handle: handle,
-        email: user.email,
-        photo: user.photoURL || null,
-        bio: '',
-        isGoogleUser: true,
-        usernameChangesCount: 0,
-        following: []
-      };
-
-      const newUserDoc = {
-        handle: currentUser.handle,
-        email: currentUser.email,
-        photo: currentUser.photo,
-        bio: '',
-        isGoogleUser: true,
-        usernameChangesCount: 0,
-        following: [],
-        createdAt: new Date().toISOString()
-      };
-
-      usersMap[handle] = newUserDoc;
-
-      try {
-        localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-        localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
-      } catch(e) {}
-
-      if (window.db) {
-        await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), newUserDoc, { merge: true });
-      }
+      console.log("[DEBUG AUTH] Google Login Exitoso. UID:", user.uid, "Email:", user.email);
 
       closeAuthModal();
-      renderHeaderAuth();
-      showToast(`¡Bienvenido a Bondibase, ${currentUser.handle}!`);
-      renderMain();
       return;
     } catch (err) {
-      console.warn("Popup de Google cerrado:", err);
+      if (err.code === 'auth/credential-already-in-use') {
+        console.log("[DEBUG LINK] Credencial de Google ya en uso por otra cuenta. Conectando cuenta de Google primaria...");
+        await window.fb.signInWithPopup(window.auth, window.googleProvider);
+        closeAuthModal();
+        return;
+      }
+      console.warn("Popup de Google cerrado o cancelado:", err);
       showToast("Inicio de sesión con Google cancelado");
       return;
     }
@@ -470,6 +506,7 @@ async function handleLoginEmailSubmit(e) {
 
   if (window.fb && window.auth) {
     try {
+      console.log("[DEBUG AUTH] Intentando inicio de sesión por correo:", email);
       await window.fb.signInWithEmailAndPassword(window.auth, email, password);
       closeAuthModal();
       return;
@@ -517,8 +554,14 @@ async function handleRegisterEmailSubmit(e) {
 
   if (window.fb && window.auth) {
     try {
-      await window.fb.createUserWithEmailAndPassword(window.auth, email, password);
+      console.log("[DEBUG AUTH] Creando usuario por correo en Firebase Auth...");
+      const res = await window.fb.createUserWithEmailAndPassword(window.auth, email, password);
+      const user = res.user;
+
+      console.log("[DEBUG AUTH] Usuario creado en Auth con UID:", user.uid);
+
       currentUser = {
+        uid: user.uid,
         handle: handleInput,
         email: email,
         photo: uploadedPhotoBase64 || null,
@@ -530,6 +573,7 @@ async function handleRegisterEmailSubmit(e) {
       };
 
       const newUserDoc = {
+        uid: user.uid,
         handle: currentUser.handle,
         email: currentUser.email,
         photo: currentUser.photo,
@@ -542,6 +586,7 @@ async function handleRegisterEmailSubmit(e) {
       };
 
       usersMap[handleInput] = newUserDoc;
+      usersByUidMap[user.uid] = newUserDoc;
 
       try {
         localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
@@ -549,7 +594,7 @@ async function handleRegisterEmailSubmit(e) {
       } catch(e) {}
 
       if (window.db) {
-        await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.handle), newUserDoc, { merge: true });
+        await window.fb.setDoc(window.fb.doc(window.db, "users", user.uid), newUserDoc, { merge: true });
       }
 
       closeAuthModal();
@@ -646,6 +691,7 @@ async function handleUpdatePasswordDirectSubmit(e) {
 async function logoutUser() {
   if (window.fb && window.auth) {
     try {
+      console.log("[DEBUG AUTH] Cerrando sesión del usuario UID:", currentUser ? currentUser.uid : "Desconocido");
       await window.fb.signOut(window.auth);
     } catch (e) {}
   }
@@ -703,27 +749,6 @@ function formatDateFriendly(dateStr) {
     return `${day} de ${MESES[monthIdx]} de ${year}`;
   }
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
-}
-
-// Precise Millisecond Timestamp Resolver for Chronological Feed Sorting
-function getReviewTimestamp(r) {
-  if (!r) return 0;
-  if (typeof r.timestamp === 'number' && !isNaN(r.timestamp) && r.timestamp > 0) {
-    return r.timestamp;
-  }
-  if (r.createdAt) {
-    const t = new Date(r.createdAt).getTime();
-    if (!isNaN(t) && t > 0) return t;
-  }
-  if (r.date) {
-    const t = new Date(r.date).getTime();
-    if (!isNaN(t) && t > 0) return t;
-  }
-  if (r.id && typeof r.id === 'string' && r.id.startsWith('rev-')) {
-    const ts = parseInt(r.id.replace('rev-', ''), 10);
-    if (!isNaN(ts) && ts > 0) return ts;
-  }
-  return 0;
 }
 
 function esc(str) {
@@ -1034,7 +1059,7 @@ function getFilteredAndSortedLines() {
   return items;
 }
 
-// Render Community Feed
+// Render Community Feed (Reverse Chronological Order)
 function renderCommunityFeed(container, indicator) {
   const myHandle = currentUser ? currentUser.handle : null;
   const myFollows = myHandle ? (followsData[myHandle] || []) : [];
@@ -1216,7 +1241,7 @@ async function toggleFollowReviewAuthor(targetHandle) {
     myFollowing.splice(idx, 1);
     showToast(`Dejaste de seguir a ${targetHandle}`);
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayRemove(targetHandle)
       }).catch(e => console.warn(e));
     }
@@ -1224,7 +1249,7 @@ async function toggleFollowReviewAuthor(targetHandle) {
     myFollowing.push(targetHandle);
     showToast(`¡Ahora sigues a ${targetHandle}!`);
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayUnion(targetHandle)
       }).catch(e => console.warn(e));
     }
@@ -1340,6 +1365,7 @@ async function submitReview() {
   const nowTs = Date.now();
   const reviewDoc = {
     id: docId,
+    userUid: currentUser.uid,
     lineaNumero: currentModalLine.numero,
     userHandle: currentUser.handle,
     userPhoto: currentUser.photo || null,
@@ -1387,6 +1413,7 @@ async function submitReview() {
 function renderLineReviewsList(lineaNumero) {
   const container = document.getElementById('lineReviewsList');
   const lineRevs = reviewsData.filter(r => r.lineaNumero === lineaNumero && !isBlacklistedUser(r.userHandle));
+  lineRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
   if (lineRevs.length === 0) {
     container.innerHTML = `<div style="font-size:13px; color:var(--text-muted); padding:10px 0;">Sé el primero en dejar una reseña sobre esta línea.</div>`;
@@ -1511,6 +1538,7 @@ function openUserProfile(handle) {
   avatarContainer.outerHTML = `<div class="profile-avatar-large" id="profileAvatar">${avatarHtml}</div>`;
 
   const userRevs = reviewsData.filter(r => r.userHandle === handle && !isBlacklistedUser(r.userHandle));
+  userRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
   document.getElementById('profileRatedCount').textContent = userRevs.length;
 
   const followers = getFollowersList(handle);
@@ -1637,6 +1665,7 @@ async function handleUsernameEditSubmit(e) {
   
   const updatedUserDoc = {
     ...uData,
+    uid: currentUser.uid,
     handle: newHandle,
     usernameChangesCount: currentCount + 1,
     lastUsernameChangeDate: new Date().toISOString()
@@ -1648,8 +1677,7 @@ async function handleUsernameEditSubmit(e) {
 
   if (window.db && window.fb) {
     try {
-      await window.fb.setDoc(window.fb.doc(window.db, "users", newHandle), updatedUserDoc);
-      await window.fb.deleteDoc(window.fb.doc(window.db, "users", oldHandle));
+      await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.uid), updatedUserDoc, { merge: true });
 
       reviewsData.forEach(async (r) => {
         if (r.userHandle === oldHandle) {
@@ -1683,7 +1711,7 @@ async function toggleFollowUser() {
     myFollowing.splice(idx, 1);
     showToast(`Dejaste de seguir a ${currentProfileHandle}`);
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayRemove(currentProfileHandle)
       }).catch(e => console.warn(e));
     }
@@ -1691,7 +1719,7 @@ async function toggleFollowUser() {
     myFollowing.push(currentProfileHandle);
     showToast(`¡Ahora sigues a ${currentProfileHandle}!`);
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayUnion(currentProfileHandle)
       }).catch(e => console.warn(e));
     }
@@ -1803,7 +1831,7 @@ async function unfollowTargetUser(targetHandle) {
     followsData[myHandle] = myFollowing;
 
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayRemove(targetHandle)
       }).catch(e => console.warn(e));
     }
@@ -1818,8 +1846,9 @@ async function removeFollowerUser(targetHandle) {
   if (!currentUser) return;
   const myHandle = currentUser.handle;
 
-  if (window.db && window.fb) {
-    await window.fb.updateDoc(window.fb.doc(window.db, "users", targetHandle), {
+  const followerUserDoc = Object.values(usersMap).find(u => u.handle === targetHandle);
+  if (followerUserDoc && followerUserDoc.uid && window.db && window.fb) {
+    await window.fb.updateDoc(window.fb.doc(window.db, "users", followerUserDoc.uid), {
       following: window.fb.arrayRemove(myHandle)
     }).catch(e => console.warn(e));
   }
@@ -1844,7 +1873,7 @@ async function toggleFollowOtherUser(targetHandle) {
     myFollowing.splice(idx, 1);
     showToast(`Dejaste de seguir a ${targetHandle}`);
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayRemove(targetHandle)
       }).catch(e => console.warn(e));
     }
@@ -1852,7 +1881,7 @@ async function toggleFollowOtherUser(targetHandle) {
     myFollowing.push(targetHandle);
     showToast(`¡Ahora sigues a ${targetHandle}!`);
     if (window.db && window.fb) {
-      await window.fb.updateDoc(window.fb.doc(window.db, "users", myHandle), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "users", currentUser.uid), {
         following: window.fb.arrayUnion(targetHandle)
       }).catch(e => console.warn(e));
     }
