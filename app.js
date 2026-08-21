@@ -8,8 +8,25 @@ const BLACKLISTED_HANDLES = new Set([
 
 function isBlacklistedUser(handle) {
   if (!handle) return true;
-  const clean = String(handle).trim().toLowerCase();
-  return BLACKLISTED_HANDLES.has(clean) || BLACKLISTED_HANDLES.has('@' + clean.replace(/^@/, ''));
+  const raw = String(handle).trim();
+  const clean = raw.toLowerCase();
+
+  // 1. Check explicit blacklisted handle list
+  if (BLACKLISTED_HANDLES.has(clean) || BLACKLISTED_HANDLES.has('@' + clean.replace(/^@/, ''))) {
+    return true;
+  }
+
+  // 2. Hide any account handle that starts with a symbol that is NOT '@' (e.g. #, $, %, !, ?, ., -, etc.)
+  const firstChar = raw.charAt(0);
+  if (firstChar !== '@' && !/[a-zA-Z0-9]/.test(firstChar)) {
+    return true;
+  }
+
+  if (/^[^a-zA-Z0-9@]/.test(raw)) {
+    return true;
+  }
+
+  return false;
 }
 
 // Real-time username input sanitizer (Strips '@' typed by user & caps at 14 typed chars -> max 15 with @)
