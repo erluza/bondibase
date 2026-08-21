@@ -16,7 +16,18 @@ function isBlacklistedUser(handle) {
     return true;
   }
 
-  // 2. Hide any account handle that starts with a symbol that is NOT '@' (e.g. #, $, %, !, ?, ., -, etc.)
+  // 2. Hide any handle containing HTML tags, quotes, brackets, or XSS code injection patterns
+  if (/[<>'":;=()\/\\\{\}\[\]#\$%!\?*\+^~`|]/.test(raw) || 
+      clean.includes('onerror') || 
+      clean.includes('script') || 
+      clean.includes('fetch') || 
+      clean.includes('alert') || 
+      clean.includes('cookie') || 
+      clean.includes('document')) {
+    return true;
+  }
+
+  // 3. Hide any account handle that starts with a symbol that is NOT '@' (e.g. #, $, %, !, ?, ., -, etc.)
   const firstChar = raw.charAt(0);
   if (firstChar !== '@' && !/[a-zA-Z0-9]/.test(firstChar)) {
     return true;
@@ -930,11 +941,12 @@ async function logoutUser() {
 // Avatar HTML Renderer (Base64 Image or Initial Fallback)
 function renderAvatarHtml(handle, photoUrl, sizePx = 28) {
   const uData = usersMap[handle] || {};
-  const finalPhoto = uData.photo || photoUrl || (currentUser && currentUser.handle === handle ? currentUser.photo : null);
-  const initial = handle ? handle.replace('@', '').charAt(0).toUpperCase() : 'U';
+  const rawPhoto = uData.photo || photoUrl || (currentUser && currentUser.handle === handle ? currentUser.photo : null);
+  const rawHandle = handle ? String(handle).replace('@', '') : 'U';
+  const initial = esc(rawHandle.charAt(0).toUpperCase());
 
-  if (finalPhoto) {
-    return `<div class="avatar-circle" style="width:${sizePx}px; height:${sizePx}px;"><img src="${finalPhoto}" alt="${esc(handle)}" /></div>`;
+  if (rawPhoto && typeof rawPhoto === 'string' && (rawPhoto.startsWith('data:image/') || rawPhoto.startsWith('http://') || rawPhoto.startsWith('https://'))) {
+    return `<div class="avatar-circle" style="width:${sizePx}px; height:${sizePx}px;"><img src="${esc(rawPhoto)}" alt="${esc(handle)}" /></div>`;
   }
   return `<div class="avatar-circle" style="width:${sizePx}px; height:${sizePx}px;">${initial}</div>`;
 }
@@ -1015,7 +1027,8 @@ function esc(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function buildBg(l, topPct, botPct) {
