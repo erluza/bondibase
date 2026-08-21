@@ -16,7 +16,12 @@ function isBlacklistedUser(handle) {
     return true;
   }
 
-  // 2. Hide any handle containing HTML tags, quotes, brackets, or XSS code injection patterns
+  // 2. Hide abnormally long handles (> 25 characters)
+  if (raw.length > 25) {
+    return true;
+  }
+
+  // 3. Hide any handle containing HTML tags, quotes, brackets, or XSS code injection patterns
   if (/[<>'":;=()\/\\\{\}\[\]#\$%!\?*\+^~`|]/.test(raw) || 
       clean.includes('onerror') || 
       clean.includes('script') || 
@@ -27,13 +32,32 @@ function isBlacklistedUser(handle) {
     return true;
   }
 
-  // 3. Hide any account handle that starts with a symbol that is NOT '@' (e.g. #, $, %, !, ?, ., -, etc.)
+  // 4. Hide any account handle that starts with a symbol that is NOT '@' (e.g. #, $, %, !, ?, ., -, etc.)
   const firstChar = raw.charAt(0);
   if (firstChar !== '@' && !/[a-zA-Z0-9]/.test(firstChar)) {
     return true;
   }
 
   if (/^[^a-zA-Z0-9@]/.test(raw)) {
+    return true;
+  }
+
+  return false;
+}
+
+// Security Inspector for Review Content & Length Boundaries
+function isBlacklistedReview(r) {
+  if (!r) return true;
+  if (isBlacklistedUser(r.userHandle)) return true;
+
+  // 1. Hide reviews exceeding 282 characters
+  if (r.text && String(r.text).length > 282) {
+    return true;
+  }
+
+  // 2. Hide reviews containing malicious script/HTML injection patterns
+  const rawText = String(r.text || '');
+  if (/<script|<img|onerror=|javascript:|fetch\(|document\.cookie/i.test(rawText)) {
     return true;
   }
 
@@ -105,7 +129,7 @@ function initApp() {
     });
     usersMap = storedUsersMap;
 
-    reviewsData = (JSON.parse(localStorage.getItem('bondibase_reviews')) || []).filter(r => !isBlacklistedUser(r.userHandle));
+    reviewsData = (JSON.parse(localStorage.getItem('bondibase_reviews')) || []).filter(r => !isBlacklistedReview(r));
     followsData = JSON.parse(localStorage.getItem('bondibase_follows')) || {};
     likesData = new Set(JSON.parse(localStorage.getItem('bondibase_likes')) || []);
 
@@ -465,7 +489,7 @@ function initRealtimeFeed() {
     window.fb.onSnapshot(colRef, (snapshot) => {
       const remoteRevs = snapshot.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(r => !isBlacklistedUser(r.userHandle));
+        .filter(r => !isBlacklistedReview(r));
       
       remoteRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
       
@@ -1377,7 +1401,7 @@ function renderCommunityFeed(container, indicator) {
   const myFollows = myHandle ? (followsData[myHandle] || []) : [];
 
   let html = '';
-  const validRevs = reviewsData.filter(r => !isBlacklistedUser(r.userHandle));
+  const validRevs = reviewsData.filter(r => !isBlacklistedReview(r));
   validRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
   if (!currentUser || myFollows.length === 0) {
@@ -1412,7 +1436,7 @@ function renderCommunityFeed(container, indicator) {
 // Render User Specific Feed
 function renderUserFeed(container, indicator, handle) {
   if (!handle || isBlacklistedUser(handle)) return;
-  const userRevs = reviewsData.filter(r => r.userHandle === handle);
+  const userRevs = reviewsData.filter(r => r.userHandle === handle && !isBlacklistedReview(r));
   userRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
   indicator.textContent = `Portadas y reseñas calificadas por ${handle} (${userRevs.length} en total)`;
 
@@ -1426,7 +1450,7 @@ function renderUserFeed(container, indicator, handle) {
 
 // Single Review Item Card Renderer
 function renderReviewCardItem(r) {
-  if (isBlacklistedUser(r.userHandle)) return '';
+  if (isBlacklistedReview(r)) return '';
 
   const line = LINEAS_DATA.find(l => l.numero === r.lineaNumero);
   const isLiked = likesData.has(r.id);
