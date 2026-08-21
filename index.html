@@ -112,11 +112,11 @@
     <!-- Grid View of Bondis (Líneas Tab) -->
     <div class="grid tab-fade-in" id="gridContainer" style="display:none;"></div>
 
-    <!-- Application Footer with Cafecito Donation Link -->
+    <!-- Application Footer with GitHub Collaboration Link -->
     <footer class="app-footer" style="margin-top:36px; padding:24px 16px; text-align:center; border-top:1px solid var(--border-color); color:var(--text-muted); font-size:13px;">
-      <div style="margin-bottom:10px; font-weight:600; color:#cbd5e1;">Si queres ayudar a la pagina para manterla podés donar!</div>
-      <a href='https://cafecito.app/bondibase' rel='noopener' target='_blank' style="display:inline-block; transition:transform 0.2s ease;">
-        <img srcset='https://cdn.cafecito.app/imgs/buttons/button_1.png 1x, https://cdn.cafecito.app/imgs/buttons/button_1_2x.png 2x, https://cdn.cafecito.app/imgs/buttons/button_1_3.75x.png 3.75x' src='https://cdn.cafecito.app/imgs/buttons/button_1.png' alt='Invitame un café en cafecito.app' style="height:40px; width:auto;" />
+      <div style="margin-bottom:10px; font-weight:600; color:#cbd5e1;">Bondibase es un proyecto libre y de código abierto</div>
+      <a href="https://github.com/merluzadefilet/bondibase" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.06); border:1px solid var(--border-color); color:#fff; padding:10px 18px; border-radius:12px; font-weight:700; font-size:13px; text-decoration:none; transition:transform 0.2s ease, background 0.2s ease;">
+        <i class="fa-brands fa-github" style="font-size:16px;"></i> Sumate a colaborar en GitHub <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:11px; opacity:0.8;"></i>
       </a>
     </footer>
 
@@ -478,40 +478,37 @@
     </div>
   </div>
 
-  <!-- Viral / Capacity Server Notice Modal -->
+  <!-- Open Source Collaboration Notice Modal -->
   <div class="modal-overlay" id="viralNoticeModal" onclick="if(event.target===this) closeViralNoticeModal()">
-    <div class="modal-card-box" style="width: min(440px, 92vw); border: 1px solid rgba(245, 158, 11, 0.45); box-shadow: 0 10px 30px rgba(245, 158, 11, 0.15);">
+    <div class="modal-card-box" style="width: min(440px, 92vw); border: 1px solid rgba(34, 197, 94, 0.45); box-shadow: 0 10px 30px rgba(34, 197, 94, 0.15);">
       <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeViralNoticeModal()"><i class="fa-solid fa-xmark"></i></button>
       
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
-        <div style="width:44px; height:44px; border-radius:50%; background:rgba(245, 158, 11, 0.2); color:#fbbf24; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">
-          <i class="fa-solid fa-triangle-exclamation"></i>
+        <div style="width:44px; height:44px; border-radius:50%; background:rgba(34, 197, 94, 0.2); color:#4ade80; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">
+          <i class="fa-brands fa-github"></i>
         </div>
         <div>
-          <div class="modal-title-head" style="font-size:18px; margin:0;">¡Aviso importante!</div>
+          <div class="modal-title-head" style="font-size:18px; margin:0;">¡Proyecto Libre y Abierto!</div>
           <div style="font-size:12px; color:var(--text-muted);">Mensaje de Bondibase</div>
         </div>
       </div>
 
-      <div style="background:rgba(245, 158, 11, 0.1); border:1px solid rgba(245, 158, 11, 0.3); border-radius:10px; padding:16px; margin-bottom:16px; font-size:15px; line-height:1.5; color:#fef08a; font-weight:700; text-align:center;">
-        Debido a que el proyecto la pego y no tengo un sope, se puede caer en cualquier momento!
+      <div style="background:rgba(34, 197, 94, 0.1); border:1px solid rgba(34, 197, 94, 0.3); border-radius:10px; padding:16px; margin-bottom:16px; font-size:14.5px; line-height:1.5; color:#86efac; font-weight:700; text-align:center;">
+        Bondibase es un proyecto abierto y libre. Estamos buscando desarrolladores que quieran sumarse, aportar ideas y ayudar a hacerlo crecer.
       </div>
 
-      <div style="text-align:center; margin-bottom:18px; font-size:13.5px; color:#cbd5e1;">
-        <div style="margin-bottom:8px; font-weight:600;">Si queres ayudar a la pagina para manterla podés donar!</div>
-        <a href='https://cafecito.app/bondibase' rel='noopener' target='_blank' style="display:inline-block; transition:transform 0.2s ease;">
-          <img srcset='https://cdn.cafecito.app/imgs/buttons/button_1.png 1x, https://cdn.cafecito.app/imgs/buttons/button_1_2x.png 2x, https://cdn.cafecito.app/imgs/buttons/button_1_3.75x.png 3.75x' src='https://cdn.cafecito.app/imgs/buttons/button_1.png' alt='Invitame un café en cafecito.app' style="height:40px; width:auto;" />
-        </a>
-      </div>
+      <a href="https://github.com/merluzadefilet/bondibase" target="_blank" rel="noopener" class="btn-full" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px; font-size:14px; background:linear-gradient(135deg, #16a34a, #15803d); color:#fff; border:none; font-weight:700; border-radius:12px; text-decoration:none; margin-bottom:14px;">
+        <i class="fa-brands fa-github" style="font-size:18px;"></i> Colaborá en GitHub
+      </a>
 
       <div style="display:flex; flex-direction:column; gap:12px;">
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#94a3b8; cursor:pointer; user-select:none;">
-          <input type="checkbox" id="dontShowNoticeCheckbox" style="accent-color:var(--accent-blue); width:16px; height:16px; cursor:pointer;">
+          <input type="checkbox" id="dontShowNoticeCheckbox" style="accent-color:#22c55e; width:16px; height:16px; cursor:pointer;">
           <span>No volver a mostrar de nuevo</span>
         </label>
 
-        <button type="button" class="btn-full btn-primary" onclick="closeViralNoticeModal()" style="padding:12px; font-size:14px; background:linear-gradient(135deg, #f59e0b, #d97706); border:none; font-weight:700;">
-          Aceptar
+        <button type="button" class="btn-full" onclick="closeViralNoticeModal()" style="padding:10px; font-size:13.5px; background:rgba(255,255,255,0.06); border:1px solid var(--border-color); color:#cbd5e1; font-weight:600; border-radius:12px;">
+          Entendido
         </button>
       </div>
     </div>
@@ -616,10 +613,9 @@
       <p style="font-size:13px; color:#94a3b8; line-height:1.5; margin:0 0 18px 0;">
         Gracias por la paciencia. Estamos trabajando en ampliar la capacidad para la comunidad del AMBA.
       </p>
-      <div style="margin-top:16px; font-size:13.5px; color:#cbd5e1;">
-        <div style="margin-bottom:8px; font-weight:600;">Si queres ayudar a la pagina para manterla podés donar!</div>
-        <a href='https://cafecito.app/bondibase' rel='noopener' target='_blank' style="display:inline-block; transition:transform 0.2s ease;">
-          <img srcset='https://cdn.cafecito.app/imgs/buttons/button_1.png 1x, https://cdn.cafecito.app/imgs/buttons/button_1_2x.png 2x, https://cdn.cafecito.app/imgs/buttons/button_1_3.75x.png 3.75x' src='https://cdn.cafecito.app/imgs/buttons/button_1.png' alt='Invitame un café en cafecito.app' style="height:40px; width:auto;" />
+      <div style="margin-top:16px;">
+        <a href="https://github.com/merluzadefilet/bondibase" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#fff; padding:10px 18px; border-radius:12px; font-weight:700; font-size:13px; text-decoration:none;">
+          <i class="fa-brands fa-github" style="font-size:16px;"></i> Colaborá en el repositorio de GitHub ↗
         </a>
       </div>
     </div>
