@@ -337,6 +337,29 @@
     </div>
   </div>
 
+  <!-- TEMPORARY PROFILE SYNCING NOTICE MODAL -->
+  <div class="modal-overlay" id="syncProfileModal" onclick="if(event.target===this) closeSyncProfileModal()">
+    <div class="modal-card-box" style="width: min(440px, 95vw); text-align: center; padding: 28px 24px;">
+      <button class="poster-close" style="position:absolute; top:16px; right:16px;" onclick="closeSyncProfileModal()"><i class="fa-solid fa-xmark"></i></button>
+      
+      <div style="font-size: 40px; color: var(--accent-yellow); margin-bottom: 12px;">
+        <i class="fa-solid fa-arrows-rotate fa-spin"></i>
+      </div>
+
+      <div class="modal-title-head" style="font-size:20px;">Espera unos segundos...</div>
+      
+      <div class="modal-subtitle" style="font-size:13.5px; line-height:1.5; color:#cbd5e1; margin-top:8px;">
+        Por favor esperá 20 segundos a que tu perfil se cargue completamente antes de publicar o hacer acciones.
+      </div>
+
+      <div style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; margin: 16px 0; font-size: 13px; color: #94a3b8;">
+        Estado actual: <strong id="syncModalCurrentHandle" style="color:#fbbf24;">@user</strong> (perfil temporal)
+      </div>
+
+      <button class="btn-full btn-primary" onclick="closeSyncProfileModal()">Entendido</button>
+    </div>
+  </div>
+
   <!-- EDIT BIO MODAL -->
   <div class="modal-overlay" id="editBioModal" onclick="if(event.target===this) closeEditBioModal()">
     <div class="modal-card-box" style="width: min(420px, 95vw);">

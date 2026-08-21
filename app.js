@@ -247,10 +247,46 @@ async function syncUserProfileFromFirestore(user) {
       try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
       renderHeaderAuth();
       renderMain(false);
+
+      if (!isTemporaryUserHandle(currentUser.handle)) {
+        const syncModal = document.getElementById('syncProfileModal');
+        if (syncModal && syncModal.classList.contains('open')) {
+          closeSyncProfileModal();
+          showToast(`¡Perfil ${currentUser.handle} cargado! Ya podés publicar.`);
+        }
+      }
     }
   } catch (err) {
     console.warn("Background auth profile sync:", err);
   }
+}
+
+// Temporary User Profile Sync Guard Helper
+function isTemporaryUserHandle(handle) {
+  if (!handle) return false;
+  const lower = handle.toLowerCase().trim();
+  return lower.startsWith('@user') || lower === 'user' || lower.startsWith('user_');
+}
+
+function openSyncProfileModal() {
+  const currentHandleEl = document.getElementById('syncModalCurrentHandle');
+  if (currentHandleEl && currentUser) {
+    currentHandleEl.textContent = currentUser.handle || '@user';
+  }
+  openModal('syncProfileModal');
+}
+
+function closeSyncProfileModal() {
+  closeModal('syncProfileModal');
+}
+
+function checkTemporaryUserGuard() {
+  if (!currentUser) return false;
+  if (isTemporaryUserHandle(currentUser.handle)) {
+    openSyncProfileModal();
+    return true; // Blocked because profile is temporary
+  }
+  return false;
 }
 
 // ----------------------------------------------------
@@ -456,11 +492,13 @@ function handlePhotoUpload(input) {
 
 // Change Profile Photo for Logged-In User
 function triggerProfilePicChange() {
+  if (checkTemporaryUserGuard()) return;
   document.getElementById('profilePicChangeInput').click();
 }
 
 function handleProfilePhotoChange(input) {
   if (!input.files || !input.files[0] || !currentUser) return;
+  if (checkTemporaryUserGuard()) return;
   const file = input.files[0];
   const reader = new FileReader();
 
@@ -527,6 +565,7 @@ function handleProfilePhotoChange(input) {
 // Custom Bio Edit Modal & Handler
 function openEditBioModal() {
   if (!currentUser) return;
+  if (checkTemporaryUserGuard()) return;
   const bioInput = document.getElementById('bioInputText');
   bioInput.value = currentUser.bio || '';
   openModal('editBioModal');
@@ -1643,6 +1682,7 @@ async function submitReview() {
     openAuthModal('login');
     return;
   }
+  if (checkTemporaryUserGuard()) return;
 
   const text = document.getElementById('reviewTextInput').value.trim();
   if (!text) {
@@ -1723,6 +1763,7 @@ async function toggleLikeReview(reviewId) {
     openAuthModal('login');
     return;
   }
+  if (checkTemporaryUserGuard()) return;
 
   const rev = reviewsData.find(r => r.id === reviewId);
   if (!rev) return;
@@ -1963,6 +2004,7 @@ function closeUserProfileModal() {
 // EDIT USERNAME (2 INITIAL IMMEDIATE CHANGES, THEN 7-DAY COOLDOWN)
 function openEditUsernameModal() {
   if (!currentUser) return;
+  if (checkTemporaryUserGuard()) return;
   const changesCount = currentUser.usernameChangesCount || 0;
   const now = new Date().getTime();
   const lastChange = currentUser.lastUsernameChangeDate ? new Date(currentUser.lastUsernameChangeDate).getTime() : 0;
@@ -2084,6 +2126,7 @@ async function toggleFollowUser() {
     openAuthModal('login');
     return;
   }
+  if (checkTemporaryUserGuard()) return;
 
   const myHandle = currentUser.handle;
   let myFollowing = [...(currentUser.following || [])];
