@@ -181,19 +181,20 @@ function renderServiceStatusNotice() {
       <a href="https://parodebondis.com.ar/" target="_blank" rel="noopener">Ver reporte de demoras <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
     `;
   }
-// ----------------------------------------------------
-// ROBUST ONAUTHSTATECHANGED OBSERVER & NON-BLOCKING BACKGROUND SYNC
-// ----------------------------------------------------
+}
+
+// Non-blocking, fast profile sync from Firestore
 async function syncUserProfileFromFirestore(user) {
-  if (!window.db || !user) return;
+  if (!user || !window.db || !window.fb) return;
   try {
     const userDocRef = window.fb.doc(window.db, "users", user.uid);
     const userSnap = await window.fb.getDoc(userDocRef);
-    let userDocData = null;
 
+    let userDocData = null;
     if (userSnap && userSnap.exists()) {
       userDocData = userSnap.data();
     } else {
+      // Check legacy migration by email or handle
       let legacyUser = null;
       if (user.email) {
         legacyUser = Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase());
@@ -202,19 +203,9 @@ async function syncUserProfileFromFirestore(user) {
         let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
         let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
         let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-        if (usersMap[derivedHandle]) {
-          legacyUser = usersMap[derivedHandle];
-        }
+        if (usersMap[derivedHandle]) legacyUser = usersMap[derivedHandle];
       }
-      if (!legacyUser && user.email && window.fb.query && window.fb.where) {
-        try {
-          const q = window.fb.query(window.fb.collection(window.db, "users"), window.fb.where("email", "==", user.email));
-          const qSnap = await window.fb.getDocs(q);
-          if (!qSnap.empty) {
-            legacyUser = qSnap.docs[0].data();
-          }
-        } catch(e) {}
-      }
+
       if (legacyUser) {
         userDocData = { ...legacyUser, uid: user.uid, email: user.email || legacyUser.email };
         await window.fb.setDoc(userDocRef, userDocData, { merge: true }).catch(e => console.warn(e));
@@ -224,14 +215,14 @@ async function syncUserProfileFromFirestore(user) {
     if (userDocData) {
       currentUser = {
         uid: user.uid,
-        handle: userDocData.handle || (currentUser ? currentUser.handle : ('@user_' + user.uid.substring(0, 5))),
+        handle: userDocData.handle || ('@user_' + user.uid.substring(0, 5)),
         email: user.email || userDocData.email,
-        photo: userDocData.photo || user.photoURL || (currentUser ? currentUser.photo : null),
-        bio: userDocData.bio != null ? userDocData.bio : (currentUser ? currentUser.bio : ''),
+        photo: userDocData.photo || user.photoURL || null,
+        bio: userDocData.bio != null ? userDocData.bio : '',
         isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
         usernameChangesCount: userDocData.usernameChangesCount || 0,
         lastUsernameChangeDate: userDocData.lastUsernameChangeDate || null,
-        following: userDocData.following || (currentUser ? currentUser.following : [])
+        following: userDocData.following || []
       };
     } else if (!currentUser) {
       let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
@@ -255,12 +246,16 @@ async function syncUserProfileFromFirestore(user) {
     if (currentUser) {
       try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
       renderHeaderAuth();
+      renderMain(false);
     }
   } catch (err) {
     console.warn("Background auth profile sync:", err);
   }
 }
 
+// ----------------------------------------------------
+// ROBUST ONAUTHSTATECHANGED OBSERVER (NON-BLOCKING + INSTANT LOCAL PERSISTENCE)
+// ----------------------------------------------------
 window.addEventListener('firebase-ready', () => {
   initRealtimeUsers();
   initRealtimeFeed();
@@ -278,20 +273,24 @@ window.addEventListener('firebase-ready', () => {
             isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
             following: []
           };
+          try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+          renderHeaderAuth();
+          renderMain(false);
         } else {
           currentUser.uid = user.uid;
+          if (user.email) currentUser.email = user.email;
+          try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
         }
 
-        renderHeaderAuth();
-        try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
-
-        // Non-blocking background sync from Firestore
+        // Non-blocking background sync from Firestore (never blocks page load or feed!)
         syncUserProfileFromFirestore(user);
-
       } else {
-        currentUser = null;
-        try { localStorage.removeItem('bondibase_user'); } catch(e) {}
-        renderHeaderAuth();
+        const storedUser = localStorage.getItem('bondibase_user');
+        if (!storedUser) {
+          currentUser = null;
+          renderHeaderAuth();
+          renderMain(false);
+        }
       }
     });
   }
