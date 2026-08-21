@@ -181,136 +181,117 @@ function renderServiceStatusNotice() {
       <a href="https://parodebondis.com.ar/" target="_blank" rel="noopener">Ver reporte de demoras <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
     `;
   }
+// ----------------------------------------------------
+// ROBUST ONAUTHSTATECHANGED OBSERVER & NON-BLOCKING BACKGROUND SYNC
+// ----------------------------------------------------
+async function syncUserProfileFromFirestore(user) {
+  if (!window.db || !user) return;
+  try {
+    const userDocRef = window.fb.doc(window.db, "users", user.uid);
+    const userSnap = await window.fb.getDoc(userDocRef);
+    let userDocData = null;
+
+    if (userSnap && userSnap.exists()) {
+      userDocData = userSnap.data();
+    } else {
+      let legacyUser = null;
+      if (user.email) {
+        legacyUser = Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase());
+      }
+      if (!legacyUser) {
+        let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
+        let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
+        let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
+        if (usersMap[derivedHandle]) {
+          legacyUser = usersMap[derivedHandle];
+        }
+      }
+      if (!legacyUser && user.email && window.fb.query && window.fb.where) {
+        try {
+          const q = window.fb.query(window.fb.collection(window.db, "users"), window.fb.where("email", "==", user.email));
+          const qSnap = await window.fb.getDocs(q);
+          if (!qSnap.empty) {
+            legacyUser = qSnap.docs[0].data();
+          }
+        } catch(e) {}
+      }
+      if (legacyUser) {
+        userDocData = { ...legacyUser, uid: user.uid, email: user.email || legacyUser.email };
+        await window.fb.setDoc(userDocRef, userDocData, { merge: true }).catch(e => console.warn(e));
+      }
+    }
+
+    if (userDocData) {
+      currentUser = {
+        uid: user.uid,
+        handle: userDocData.handle || (currentUser ? currentUser.handle : ('@user_' + user.uid.substring(0, 5))),
+        email: user.email || userDocData.email,
+        photo: userDocData.photo || user.photoURL || (currentUser ? currentUser.photo : null),
+        bio: userDocData.bio != null ? userDocData.bio : (currentUser ? currentUser.bio : ''),
+        isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
+        usernameChangesCount: userDocData.usernameChangesCount || 0,
+        lastUsernameChangeDate: userDocData.lastUsernameChangeDate || null,
+        following: userDocData.following || (currentUser ? currentUser.following : [])
+      };
+    } else if (!currentUser) {
+      let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
+      let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
+      let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
+
+      currentUser = {
+        uid: user.uid,
+        handle: derivedHandle,
+        email: user.email,
+        photo: user.photoURL || null,
+        bio: '',
+        isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
+        usernameChangesCount: 0,
+        following: [],
+        createdAt: new Date().toISOString()
+      };
+      await window.fb.setDoc(userDocRef, currentUser, { merge: true }).catch(e => console.warn(e));
+    }
+
+    if (currentUser) {
+      try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+      renderHeaderAuth();
+    }
+  } catch (err) {
+    console.warn("Background auth profile sync:", err);
+  }
 }
 
-// ----------------------------------------------------
-// ROBUST ONAUTHSTATECHANGED OBSERVER (STRICT user.uid LOCK)
-// ----------------------------------------------------
 window.addEventListener('firebase-ready', () => {
   initRealtimeUsers();
   initRealtimeFeed();
 
   if (window.auth && window.fb) {
-    window.fb.onAuthStateChanged(window.auth, async (user) => {
-      console.log("==========================================");
-      console.log("[DEBUG AUTH] Estado de Autenticación de Firebase activo");
-
+    window.fb.onAuthStateChanged(window.auth, (user) => {
       if (user) {
-        console.log("[DEBUG AUTH] User UID activo:", user.uid);
-        console.log("[DEBUG AUTH] Email registrado:", user.email);
-        console.log("[DEBUG AUTH] Es cuenta anónima:", user.isAnonymous);
-        console.log("[DEBUG AUTH] Proveedores vinculados:", user.providerData ? user.providerData.map(p => p.providerId) : []);
-        console.log("==========================================");
-
-        // Fetch user document from Firestore strictly by user.uid
-        let userDocData = null;
-        if (window.db) {
-          try {
-            const userDocRef = window.fb.doc(window.db, "users", user.uid);
-            const userSnap = await window.fb.getDoc(userDocRef);
-            if (userSnap && userSnap.exists()) {
-              userDocData = userSnap.data();
-              console.log("[DEBUG AUTH] ¡Documento original recuperado con éxito por UID!", userDocData);
-            } else {
-              console.log("[DEBUG AUTH] No existe documento directo en users/", user.uid, ". Buscando perfil antiguo legacy por email/handle...");
-              
-              // 1. Check in memory usersMap by email
-              let legacyUser = null;
-              if (user.email) {
-                legacyUser = Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase());
-              }
-
-              // 2. If not found in memory, check by derived handle
-              if (!legacyUser) {
-                let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
-                let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-                let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-                if (usersMap[derivedHandle]) {
-                  legacyUser = usersMap[derivedHandle];
-                }
-              }
-
-              // 3. If not found in memory, query Firestore users collection by email
-              if (!legacyUser && user.email && window.fb.query && window.fb.where) {
-                try {
-                  const q = window.fb.query(window.fb.collection(window.db, "users"), window.fb.where("email", "==", user.email));
-                  const qSnap = await window.fb.getDocs(q);
-                  if (!qSnap.empty) {
-                    legacyUser = qSnap.docs[0].data();
-                  }
-                } catch(e) {
-                  console.warn("Error buscando legacy por email:", e);
-                }
-              }
-
-              if (legacyUser) {
-                console.log("[DEBUG MIGRATION] ¡Perfil antiguo legacy encontrado! Migrando perfil a users/" + user.uid, legacyUser);
-                userDocData = {
-                  ...legacyUser,
-                  uid: user.uid,
-                  email: user.email || legacyUser.email
-                };
-
-                // Save migrated profile into users/{user.uid}
-                await window.fb.setDoc(userDocRef, userDocData, { merge: true }).catch(e => console.warn(e));
-                showToast(`¡Perfil ${userDocData.handle} recuperado y migrado con éxito!`);
-              } else {
-                console.log("[DEBUG AUTH] No se encontró perfil antiguo. Se creará un documento de perfil inicial.");
-              }
-            }
-          } catch (err) {
-            console.warn("[DEBUG AUTH] Error leyendo o migrando documento por UID:", err);
-          }
-        }
-
-        if (userDocData) {
+        if (!currentUser) {
           currentUser = {
             uid: user.uid,
-            handle: userDocData.handle || ('@user_' + user.uid.substring(0, 5)),
-            email: user.email || userDocData.email,
-            photo: userDocData.photo || user.photoURL || null,
-            bio: userDocData.bio != null ? userDocData.bio : '',
-            isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
-            usernameChangesCount: userDocData.usernameChangesCount || 0,
-            lastUsernameChangeDate: userDocData.lastUsernameChangeDate || null,
-            following: userDocData.following || []
-          };
-        } else {
-          let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
-          let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-          let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-
-          currentUser = {
-            uid: user.uid,
-            handle: derivedHandle,
+            handle: '@user_' + user.uid.substring(0, 5),
             email: user.email,
             photo: user.photoURL || null,
             bio: '',
             isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
-            usernameChangesCount: 0,
-            following: [],
-            createdAt: new Date().toISOString()
+            following: []
           };
-
-          if (window.db) {
-            await window.fb.setDoc(window.fb.doc(window.db, "users", user.uid), currentUser, { merge: true }).catch(e => console.warn(e));
-          }
+        } else {
+          currentUser.uid = user.uid;
         }
 
-        try {
-          localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
-        } catch(e) {}
-
         renderHeaderAuth();
-        renderMain();
+        try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+
+        // Non-blocking background sync from Firestore
+        syncUserProfileFromFirestore(user);
 
       } else {
-        console.log("[DEBUG AUTH] Ningún usuario autenticado. Estado: Deslogeado.");
-        console.log("==========================================");
         currentUser = null;
         try { localStorage.removeItem('bondibase_user'); } catch(e) {}
         renderHeaderAuth();
-        renderMain();
       }
     });
   }
