@@ -300,14 +300,23 @@ window.addEventListener('firebase-ready', () => {
     window.fb.onAuthStateChanged(window.auth, (user) => {
       if (user) {
         if (!currentUser) {
+          const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
+          const cachedByEmail = user.email ? Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase()) : null;
+          const cached = cachedByUid || cachedByEmail;
+
+          const handleToUse = (cached && cached.handle && !isTemporaryUserHandle(cached.handle))
+                              ? cached.handle
+                              : ('@user_' + user.uid.substring(0, 5));
+
           currentUser = {
             uid: user.uid,
-            handle: '@user_' + user.uid.substring(0, 5),
-            email: user.email,
-            photo: user.photoURL || null,
-            bio: '',
+            handle: handleToUse,
+            email: user.email || (cached ? cached.email : null),
+            photo: (cached && cached.photo) || user.photoURL || null,
+            bio: (cached && cached.bio) || '',
             isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
-            following: []
+            usernameChangesCount: (cached && cached.usernameChangesCount) || 0,
+            following: (cached && cached.following) || []
           };
           try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
           renderHeaderAuth();
@@ -315,7 +324,12 @@ window.addEventListener('firebase-ready', () => {
         } else {
           currentUser.uid = user.uid;
           if (user.email) currentUser.email = user.email;
+          const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
+          if (cachedByUid && cachedByUid.handle && !isTemporaryUserHandle(cachedByUid.handle)) {
+            currentUser.handle = cachedByUid.handle;
+          }
           try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+          renderHeaderAuth();
         }
 
         // Non-blocking background sync from Firestore (never blocks page load or feed!)
@@ -365,12 +379,24 @@ function initRealtimeUsers() {
 
       if (currentUser && (usersByUidMap[currentUser.uid] || usersMap[currentUser.handle])) {
         const myData = usersByUidMap[currentUser.uid] || usersMap[currentUser.handle];
+        if (myData && myData.handle && !isTemporaryUserHandle(myData.handle)) {
+          currentUser.handle = myData.handle;
+        }
         currentUser.photo = myData.photo || currentUser.photo;
         currentUser.bio = myData.bio != null ? myData.bio : currentUser.bio;
         currentUser.usernameChangesCount = myData.usernameChangesCount || 0;
         currentUser.lastUsernameChangeDate = myData.lastUsernameChangeDate || currentUser.lastUsernameChangeDate;
         currentUser.following = myData.following || [];
         try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+        renderHeaderAuth();
+
+        if (!isTemporaryUserHandle(currentUser.handle)) {
+          const syncModal = document.getElementById('syncProfileModal');
+          if (syncModal && syncModal.classList.contains('open')) {
+            closeSyncProfileModal();
+            showToast(`¡Perfil ${currentUser.handle} cargado! Ya podés publicar.`);
+          }
+        }
       }
 
       renderMain(false);
