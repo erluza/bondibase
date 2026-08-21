@@ -2412,10 +2412,10 @@ function showToast(msg) {
   }, 3000);
 }
 
-// Viral / Capacity Notice Modal Manager
+// Viral / Open Source Notice Modal Manager
 function checkViralNoticeModal() {
   try {
-    const hideNotice = localStorage.getItem('bondibase_hide_viral_notice');
+    const hideNotice = localStorage.getItem('bondibase_hide_opensource_v1');
     if (hideNotice !== 'true') {
       setTimeout(() => {
         openModal('viralNoticeModal');
@@ -2428,7 +2428,7 @@ function closeViralNoticeModal() {
   const checkbox = document.getElementById('dontShowNoticeCheckbox');
   if (checkbox && checkbox.checked) {
     try {
-      localStorage.setItem('bondibase_hide_viral_notice', 'true');
+      localStorage.setItem('bondibase_hide_opensource_v1', 'true');
     } catch (e) {}
   }
   closeModal('viralNoticeModal');
