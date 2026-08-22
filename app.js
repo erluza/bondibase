@@ -235,9 +235,38 @@ function renderServiceStatusNotice() {
   }
 }
 
+let isProfileSyncing = false;
+let profileSyncTimeout = null;
+
+function setProfileSyncingState(syncing) {
+  isProfileSyncing = syncing;
+  if (syncing) {
+    if (profileSyncTimeout) clearTimeout(profileSyncTimeout);
+    profileSyncTimeout = setTimeout(() => {
+      isProfileSyncing = false;
+      closeSyncProfileModal();
+    }, 1200);
+  } else {
+    if (profileSyncTimeout) clearTimeout(profileSyncTimeout);
+    closeSyncProfileModal();
+  }
+}
+
+function deriveHandleFromUser(user) {
+  if (!user) return '@user';
+  if (user.email) {
+    let clean = user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+    if (clean.length > 0) return '@' + clean.substring(0, 14);
+  }
+  return '@user_' + user.uid.substring(0, 5);
+}
+
 // Non-blocking, fast profile sync from Firestore
 async function syncUserProfileFromFirestore(user) {
-  if (!user || !window.db || !window.fb) return;
+  if (!user || !window.db || !window.fb) {
+    setProfileSyncingState(false);
+    return;
+  }
   try {
     const userDocRef = window.fb.doc(window.db, "users", user.uid);
     const userSnap = await window.fb.getDoc(userDocRef);
@@ -252,9 +281,7 @@ async function syncUserProfileFromFirestore(user) {
         legacyUser = Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase());
       }
       if (!legacyUser) {
-        let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
-        let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-        let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
+        let derivedHandle = deriveHandleFromUser(user);
         if (usersMap[derivedHandle]) legacyUser = usersMap[derivedHandle];
       }
 
@@ -267,7 +294,7 @@ async function syncUserProfileFromFirestore(user) {
     if (userDocData) {
       currentUser = {
         uid: user.uid,
-        handle: userDocData.handle || ('@user_' + user.uid.substring(0, 5)),
+        handle: userDocData.handle || deriveHandleFromUser(user),
         email: user.email || userDocData.email,
         photo: userDocData.photo || user.photoURL || null,
         bio: userDocData.bio != null ? userDocData.bio : '',
@@ -277,13 +304,9 @@ async function syncUserProfileFromFirestore(user) {
         following: userDocData.following || []
       };
     } else if (!currentUser) {
-      let cleanEmailName = user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5));
-      let rawSanitized = cleanEmailName.replace(/[^a-zA-Z0-9_]/g, '');
-      let derivedHandle = '@' + (rawSanitized.length > 0 ? rawSanitized.substring(0, 14) : 'user');
-
       currentUser = {
         uid: user.uid,
-        handle: derivedHandle,
+        handle: deriveHandleFromUser(user),
         email: user.email,
         photo: user.photoURL || null,
         bio: '',
@@ -299,25 +322,20 @@ async function syncUserProfileFromFirestore(user) {
       try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
       renderHeaderAuth();
       renderMain(false);
-
-      if (!isTemporaryUserHandle(currentUser.handle)) {
-        const syncModal = document.getElementById('syncProfileModal');
-        if (syncModal && syncModal.classList.contains('open')) {
-          closeSyncProfileModal();
-          showToast(`¡Perfil ${currentUser.handle} cargado! Ya podés publicar.`);
-        }
-      }
     }
   } catch (err) {
     console.warn("Background auth profile sync:", err);
+  } finally {
+    setProfileSyncingState(false);
   }
 }
 
 // Temporary User Profile Sync Guard Helper
 function isTemporaryUserHandle(handle) {
   if (!handle) return false;
+  if (!isProfileSyncing) return false; // Never block if profile sync has finished!
   const lower = handle.toLowerCase().trim();
-  return lower.startsWith('@user') || lower === 'user' || lower.startsWith('user_');
+  return lower.startsWith('@user_') || lower === 'user' || lower === '@user';
 }
 
 function openSyncProfileModal() {
@@ -334,9 +352,9 @@ function closeSyncProfileModal() {
 
 function checkTemporaryUserGuard() {
   if (!currentUser) return false;
-  if (isTemporaryUserHandle(currentUser.handle)) {
+  if (isProfileSyncing && isTemporaryUserHandle(currentUser.handle)) {
     openSyncProfileModal();
-    return true; // Blocked because profile is temporary
+    return true;
   }
   return false;
 }
@@ -351,6 +369,7 @@ window.addEventListener('firebase-ready', () => {
   if (window.auth && window.fb) {
     window.fb.onAuthStateChanged(window.auth, (user) => {
       if (user) {
+        setProfileSyncingState(true);
         if (!currentUser) {
           const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
           const cachedByEmail = user.email ? Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase()) : null;
@@ -358,7 +377,7 @@ window.addEventListener('firebase-ready', () => {
 
           const handleToUse = (cached && cached.handle && !isTemporaryUserHandle(cached.handle))
                               ? cached.handle
-                              : ('@user_' + user.uid.substring(0, 5));
+                              : deriveHandleFromUser(user);
 
           currentUser = {
             uid: user.uid,
@@ -379,6 +398,8 @@ window.addEventListener('firebase-ready', () => {
           const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
           if (cachedByUid && cachedByUid.handle && !isTemporaryUserHandle(cachedByUid.handle)) {
             currentUser.handle = cachedByUid.handle;
+          } else if (isTemporaryUserHandle(currentUser.handle)) {
+            currentUser.handle = deriveHandleFromUser(user);
           }
           try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
           renderHeaderAuth();
@@ -387,6 +408,7 @@ window.addEventListener('firebase-ready', () => {
         // Non-blocking background sync from Firestore (never blocks page load or feed!)
         syncUserProfileFromFirestore(user);
       } else {
+        setProfileSyncingState(false);
         const storedUser = localStorage.getItem('bondibase_user');
         if (!storedUser) {
           currentUser = null;
@@ -570,13 +592,11 @@ function handlePhotoUpload(input) {
 
 // Change Profile Photo for Logged-In User
 function triggerProfilePicChange() {
-  if (checkTemporaryUserGuard()) return;
   document.getElementById('profilePicChangeInput').click();
 }
 
 function handleProfilePhotoChange(input) {
   if (!input.files || !input.files[0] || !currentUser) return;
-  if (checkTemporaryUserGuard()) return;
   const file = input.files[0];
   const reader = new FileReader();
 
@@ -643,7 +663,6 @@ function handleProfilePhotoChange(input) {
 // Custom Bio Edit Modal & Handler
 function openEditBioModal() {
   if (!currentUser) return;
-  if (checkTemporaryUserGuard()) return;
   const bioInput = document.getElementById('bioInputText');
   bioInput.value = currentUser.bio || '';
   openModal('editBioModal');
@@ -2084,7 +2103,6 @@ function closeUserProfileModal() {
 // EDIT USERNAME (2 INITIAL IMMEDIATE CHANGES, THEN 7-DAY COOLDOWN)
 function openEditUsernameModal() {
   if (!currentUser) return;
-  if (checkTemporaryUserGuard()) return;
   const changesCount = currentUser.usernameChangesCount || 0;
   const now = new Date().getTime();
   const lastChange = currentUser.lastUsernameChangeDate ? new Date(currentUser.lastUsernameChangeDate).getTime() : 0;
