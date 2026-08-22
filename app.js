@@ -713,6 +713,18 @@ async function loginWithGoogle() {
   showToast('Servicio de autenticación no disponible');
 }
 
+// Smart Helper: Switch directly to Email Registration form with pre-filled values
+function switchToRegisterWithEmail(emailValue) {
+  switchAuthMode('register');
+  goToRegisterEmailForm();
+  if (emailValue) {
+    const regEmail = document.getElementById('registerEmailInput');
+    if (regEmail) regEmail.value = emailValue;
+  }
+  const regUser = document.getElementById('registerUsernameInput');
+  if (regUser) regUser.focus();
+}
+
 // Email Login Handler
 async function handleLoginEmailSubmit(e) {
   e.preventDefault();
@@ -727,6 +739,11 @@ async function handleLoginEmailSubmit(e) {
       return;
     } catch (err) {
       console.warn("Firebase Auth Login error:", err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        switchToRegisterWithEmail(email);
+        showToast('No encontramos tu cuenta. ¡Completá tu nombre de usuario para registrarte!');
+        return;
+      }
       showToast('Error al iniciar sesión. Verificá tu correo y contraseña.');
     }
   }
@@ -742,7 +759,7 @@ async function handleRegisterEmailSubmit(e) {
   let cleanHandle = rawInput.replace(/@/g, '').replace(/[^a-zA-Z0-9_]/g, '').trim();
 
   if (!cleanHandle || cleanHandle.length < 2) {
-    showToast('Nombre de usuario muy corto');
+    showToast('Nombre de usuario muy corto (mínimo 2 caracteres)');
     return;
   }
 
@@ -818,7 +835,16 @@ async function handleRegisterEmailSubmit(e) {
       renderMain();
     } catch (err) {
       console.warn("Firebase Auth Register error:", err);
-      showToast('No se pudo crear la cuenta. Verifica que el correo no esté en uso.');
+      if (err.code === 'auth/email-already-in-use') {
+        switchAuthMode('login');
+        const loginEmail = document.getElementById('loginEmailInput');
+        if (loginEmail) loginEmail.value = email;
+        const loginPass = document.getElementById('loginPasswordInput');
+        if (loginPass) loginPass.focus();
+        showToast('Este correo ya está registrado. Podés ingresar tu contraseña para iniciar sesión.');
+        return;
+      }
+      showToast('No se pudo crear la cuenta. Verificá los datos ingresados.');
     }
   }
 }
