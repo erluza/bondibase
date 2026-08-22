@@ -235,38 +235,9 @@ function renderServiceStatusNotice() {
   }
 }
 
-let isProfileSyncing = false;
-let profileSyncTimeout = null;
-
-function setProfileSyncingState(syncing) {
-  isProfileSyncing = syncing;
-  if (syncing) {
-    if (profileSyncTimeout) clearTimeout(profileSyncTimeout);
-    profileSyncTimeout = setTimeout(() => {
-      isProfileSyncing = false;
-      closeSyncProfileModal();
-    }, 1200);
-  } else {
-    if (profileSyncTimeout) clearTimeout(profileSyncTimeout);
-    closeSyncProfileModal();
-  }
-}
-
-function deriveHandleFromUser(user) {
-  if (!user) return '@user';
-  if (user.email) {
-    let clean = user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
-    if (clean.length > 0) return '@' + clean.substring(0, 14);
-  }
-  return '@user_' + user.uid.substring(0, 5);
-}
-
-// Non-blocking, fast profile sync from Firestore
+// Fast, direct profile sync from Firestore users/{user.uid}
 async function syncUserProfileFromFirestore(user) {
-  if (!user || !window.db || !window.fb) {
-    setProfileSyncingState(false);
-    return;
-  }
+  if (!user || !window.db || !window.fb) return;
   try {
     const userDocRef = window.fb.doc(window.db, "users", user.uid);
     const userSnap = await window.fb.getDoc(userDocRef);
@@ -275,16 +246,11 @@ async function syncUserProfileFromFirestore(user) {
     if (userSnap && userSnap.exists()) {
       userDocData = userSnap.data();
     } else {
-      // Check legacy migration by email or handle
+      // Check legacy migration by email
       let legacyUser = null;
       if (user.email) {
         legacyUser = Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase());
       }
-      if (!legacyUser) {
-        let derivedHandle = deriveHandleFromUser(user);
-        if (usersMap[derivedHandle]) legacyUser = usersMap[derivedHandle];
-      }
-
       if (legacyUser) {
         userDocData = { ...legacyUser, uid: user.uid, email: user.email || legacyUser.email };
         await window.fb.setDoc(userDocRef, userDocData, { merge: true }).catch(e => console.warn(e));
@@ -294,7 +260,7 @@ async function syncUserProfileFromFirestore(user) {
     if (userDocData) {
       currentUser = {
         uid: user.uid,
-        handle: userDocData.handle || deriveHandleFromUser(user),
+        handle: userDocData.handle || ('@' + (user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5)))),
         email: user.email || userDocData.email,
         photo: userDocData.photo || user.photoURL || null,
         bio: userDocData.bio != null ? userDocData.bio : '',
@@ -304,9 +270,12 @@ async function syncUserProfileFromFirestore(user) {
         following: userDocData.following || []
       };
     } else if (!currentUser) {
+      let defaultHandle = '@' + (user.email ? user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') : ('user_' + user.uid.substring(0, 5)));
+      if (defaultHandle === '@') defaultHandle = '@user_' + user.uid.substring(0, 5);
+
       currentUser = {
         uid: user.uid,
-        handle: deriveHandleFromUser(user),
+        handle: defaultHandle,
         email: user.email,
         photo: user.photoURL || null,
         bio: '',
@@ -325,42 +294,17 @@ async function syncUserProfileFromFirestore(user) {
     }
   } catch (err) {
     console.warn("Background auth profile sync:", err);
-  } finally {
-    setProfileSyncingState(false);
   }
 }
 
-// Temporary User Profile Sync Guard Helper
-function isTemporaryUserHandle(handle) {
-  if (!handle) return false;
-  if (!isProfileSyncing) return false; // Never block if profile sync has finished!
-  const lower = handle.toLowerCase().trim();
-  return lower.startsWith('@user_') || lower === 'user' || lower === '@user';
-}
-
-function openSyncProfileModal() {
-  const currentHandleEl = document.getElementById('syncModalCurrentHandle');
-  if (currentHandleEl && currentUser) {
-    currentHandleEl.textContent = currentUser.handle || '@user';
-  }
-  openModal('syncProfileModal');
-}
-
-function closeSyncProfileModal() {
-  closeModal('syncProfileModal');
-}
-
-function checkTemporaryUserGuard() {
-  if (!currentUser) return false;
-  if (isProfileSyncing && isTemporaryUserHandle(currentUser.handle)) {
-    openSyncProfileModal();
-    return true;
-  }
-  return false;
-}
+// Dummy compatibility stubs to prevent any unexpected reference errors
+function checkTemporaryUserGuard() { return false; }
+function isTemporaryUserHandle() { return false; }
+function openSyncProfileModal() {}
+function closeSyncProfileModal() {}
 
 // ----------------------------------------------------
-// ROBUST ONAUTHSTATECHANGED OBSERVER (NON-BLOCKING + INSTANT LOCAL PERSISTENCE)
+// ROBUST ONAUTHSTATECHANGED OBSERVER (INSTANT LOCAL RESOLUTION + FIRESTORE DB BIND)
 // ----------------------------------------------------
 window.addEventListener('firebase-ready', () => {
   initRealtimeUsers();
@@ -369,19 +313,14 @@ window.addEventListener('firebase-ready', () => {
   if (window.auth && window.fb) {
     window.fb.onAuthStateChanged(window.auth, (user) => {
       if (user) {
-        setProfileSyncingState(true);
         if (!currentUser) {
           const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
           const cachedByEmail = user.email ? Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase()) : null;
-          const cached = cachedByUid || cachedByEmail;
-
-          const handleToUse = (cached && cached.handle && !isTemporaryUserHandle(cached.handle))
-                              ? cached.handle
-                              : deriveHandleFromUser(user);
+          const cached = cachedByUid || cachedByEmail || (localStorage.getItem('bondibase_user') ? JSON.parse(localStorage.getItem('bondibase_user')) : null);
 
           currentUser = {
             uid: user.uid,
-            handle: handleToUse,
+            handle: (cached && cached.handle) ? cached.handle : ('@' + (user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5)))),
             email: user.email || (cached ? cached.email : null),
             photo: (cached && cached.photo) || user.photoURL || null,
             bio: (cached && cached.bio) || '',
@@ -396,19 +335,16 @@ window.addEventListener('firebase-ready', () => {
           currentUser.uid = user.uid;
           if (user.email) currentUser.email = user.email;
           const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
-          if (cachedByUid && cachedByUid.handle && !isTemporaryUserHandle(cachedByUid.handle)) {
+          if (cachedByUid && cachedByUid.handle) {
             currentUser.handle = cachedByUid.handle;
-          } else if (isTemporaryUserHandle(currentUser.handle)) {
-            currentUser.handle = deriveHandleFromUser(user);
           }
           try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
           renderHeaderAuth();
         }
 
-        // Non-blocking background sync from Firestore (never blocks page load or feed!)
+        // Direct background sync from Firestore users/{user.uid}
         syncUserProfileFromFirestore(user);
       } else {
-        setProfileSyncingState(false);
         const storedUser = localStorage.getItem('bondibase_user');
         if (!storedUser) {
           currentUser = null;
