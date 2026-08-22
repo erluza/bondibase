@@ -36,7 +36,7 @@
 
 ### 1. Clonar el repositorio
 ```bash
-git clone https://github.com/merluzadefilet/bondibase.git
+git clone https://github.com/erluza/bondibase.git
 cd bondibase
 ```
 
@@ -80,7 +80,7 @@ Abrí tu navegador en `http://localhost:8000`.
 
 ## 💬 Comunidad y Canales Oficiales
 
-- 🐙 **Repositorio de GitHub**: [github.com/merluzadefilet/bondibase](https://github.com/merluzadefilet/bondibase)
+- 🐙 **Repositorio de GitHub**: [github.com/erluza/bondibase](https://github.com/erluza/bondibase)
 - ✈️ **Comunidad de Telegram**: [Grupo de Organización en Telegram](https://t.me/+oFoEmnEwRngyMDNh)
 
 ---
