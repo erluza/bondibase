@@ -1396,23 +1396,10 @@ function getFilteredAndSortedLines() {
 
 // Twitter/X Feed Mode Switcher
 function switchFeedMode(mode) {
-  const myHandle = currentUser ? currentUser.handle : null;
-  const myFollows = myHandle ? (followsData[myHandle] || []) : [];
-
-  if (mode === 'siguiendo') {
-    if (!currentUser) {
-      showToast('Debés iniciar sesión para ver publicaciones de tus seguidos');
-      openAuthModal('login');
-      return;
-    }
-    if (myFollows.length === 0) {
-      showToast('Todavía no seguís a nadie. Te mostramos las recomendaciones en "Para ti".');
-      activeFeedMode = 'para-ti';
-      visibleFeedLimit = 15;
-      renderFeedModeTabsUI();
-      renderMain(false);
-      return;
-    }
+  if (mode === 'siguiendo' && !currentUser) {
+    showToast('Debés iniciar sesión para ver publicaciones de tus seguidos');
+    openAuthModal('login');
+    return;
   }
 
   activeFeedMode = mode;
@@ -1461,29 +1448,39 @@ function renderCommunityFeed(container, indicator) {
   const validRevs = reviewsData.filter(r => !isBlacklistedReview(r));
   validRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
-  let targetRevs = validRevs;
-  if (activeFeedMode === 'siguiendo' && myFollows.length > 0) {
+  let targetRevs = validRevs; // "Para ti" ALWAYS shows all reviews from everyone
+  if (activeFeedMode === 'siguiendo') {
     targetRevs = validRevs.filter(r => myFollows.includes(r.userHandle) || (currentUser && r.userHandle === currentUser.handle));
   }
 
   let html = '';
 
-  if (!currentUser || myFollows.length === 0) {
-    indicator.textContent = `Explorá las reseñas más recientes de la comunidad (${targetRevs.length} en total)`;
-    html += `
-      <div class="feed-recommendation-notice">
-        <i class="fa-solid fa-compass" style="font-size:20px; color:var(--accent-blue);"></i>
-        <div>
-          <div style="font-weight:700; color:#fff;">Todavía no seguís a nadie en Bondibase</div>
-          <div style="font-size:12.5px;">Te sugerimos algunas reseñas recientes de la comunidad para empezar a seguir a otros viajeros:</div>
+  if (activeFeedMode === 'para-ti') {
+    indicator.textContent = `Mostrando reseñas recientes de toda la comunidad (${targetRevs.length} en total)`;
+    if (!currentUser || myFollows.length === 0) {
+      html += `
+        <div class="feed-recommendation-notice">
+          <i class="fa-solid fa-compass" style="font-size:20px; color:var(--accent-blue);"></i>
+          <div>
+            <div style="font-weight:700; color:#fff;">Todavía no seguís a nadie en Bondibase</div>
+            <div style="font-size:12.5px;">Te sugerimos algunas reseñas recientes de la comunidad para empezar a seguir a otros viajeros:</div>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
   } else {
-    if (activeFeedMode === 'siguiendo') {
-      indicator.textContent = `Mostrando publicaciones de tus seguidos (${targetRevs.length} en total)`;
-    } else {
-      indicator.textContent = `Mostrando reseñas recientes de toda la comunidad (${targetRevs.length} en total)`;
+    // "Siguiendo" mode
+    indicator.textContent = `Mostrando publicaciones de tus seguidos (${targetRevs.length} en total)`;
+    if (myFollows.length === 0) {
+      html += `
+        <div class="feed-recommendation-notice">
+          <i class="fa-solid fa-compass" style="font-size:20px; color:var(--accent-blue);"></i>
+          <div>
+            <div style="font-weight:700; color:#fff;">Todavía no seguís a nadie en Bondibase</div>
+            <div style="font-size:12.5px;">Acá verás las publicaciones de los viajeros que sigas. ¡Pasate a la solapa "Para ti" para descubrir a quién seguir!</div>
+          </div>
+        </div>
+      `;
     }
   }
 
