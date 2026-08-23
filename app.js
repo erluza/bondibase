@@ -121,7 +121,24 @@ function checkShutdownGeneral() {
   }
 }
 
-// Initialize Storage & App
+// Fast in-memory sync for user's liked reviews
+function syncLikesFromReviews() {
+  if (!currentUser || !currentUser.handle) {
+    likesData = new Set();
+    return;
+  }
+  const myHandle = String(currentUser.handle).toLowerCase();
+  const nextLikes = new Set();
+  reviewsData.forEach(r => {
+    if (r && Array.isArray(r.likedBy) && r.likedBy.some(h => String(h).toLowerCase() === myHandle)) {
+      nextLikes.add(r.id);
+    }
+  });
+  likesData = nextLikes;
+  try { localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData))); } catch(e) {}
+}
+
+// Initialize Storage & App (Instant local resolution from localStorage)
 function initApp() {
   if (checkShutdownGeneral()) return;
 
@@ -131,6 +148,20 @@ function initApp() {
       if (isBlacklistedUser(h)) delete storedUsersMap[h];
     });
     usersMap = storedUsersMap;
+
+    // Restore usersByUidMap immediately from cache and usersMap
+    usersByUidMap = {};
+    Object.values(usersMap).forEach(u => {
+      if (u && u.uid) {
+        usersByUidMap[u.uid] = u;
+      }
+    });
+    const storedByUid = JSON.parse(localStorage.getItem('bondibase_users_by_uid')) || {};
+    Object.keys(storedByUid).forEach(uid => {
+      if (storedByUid[uid] && !isBlacklistedUser(storedByUid[uid].handle)) {
+        usersByUidMap[uid] = storedByUid[uid];
+      }
+    });
 
     reviewsData = (JSON.parse(localStorage.getItem('bondibase_reviews')) || []).filter(r => !isBlacklistedReview(r));
     followsData = JSON.parse(localStorage.getItem('bondibase_follows')) || {};
@@ -144,10 +175,19 @@ function initApp() {
         currentUser = null;
       } else {
         currentUser = parsed;
+        if (currentUser.uid) {
+          usersByUidMap[currentUser.uid] = currentUser;
+        }
+        if (currentUser.handle) {
+          usersMap[currentUser.handle] = currentUser;
+        }
       }
     } else {
       currentUser = null;
     }
+
+    // Immediately resolve user likes without latency
+    syncLikesFromReviews();
   } catch (e) {
     console.warn("Local storage cache load error:", e);
   }
@@ -270,9 +310,11 @@ async function syncUserProfileFromFirestore(user) {
         isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
         usernameChangesCount: userDocData.usernameChangesCount || 0,
         lastUsernameChangeDate: userDocData.lastUsernameChangeDate || null,
-        following: userDocData.following || []
+        following: Array.isArray(userDocData.following) ? userDocData.following : []
       };
-    } else if (!currentUser) {
+      usersMap[currentUser.handle] = { ...userDocData, ...currentUser };
+      usersByUidMap[user.uid] = usersMap[currentUser.handle];
+    } else if (!currentUser || !currentUser.handle || currentUser.handle.startsWith('@user_')) {
       let defaultHandle = '@' + (user.email ? user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') : ('user_' + user.uid.substring(0, 5)));
       if (defaultHandle === '@') defaultHandle = '@user_' + user.uid.substring(0, 5);
 
@@ -284,14 +326,22 @@ async function syncUserProfileFromFirestore(user) {
         bio: '',
         isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
         usernameChangesCount: 0,
+        lastUsernameChangeDate: null,
         following: [],
         createdAt: new Date().toISOString()
       };
       await window.fb.setDoc(userDocRef, currentUser, { merge: true }).catch(e => console.warn(e));
+      usersMap[currentUser.handle] = currentUser;
+      usersByUidMap[user.uid] = currentUser;
     }
 
     if (currentUser) {
-      try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+      try {
+        localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+        localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+        localStorage.setItem('bondibase_users_by_uid', JSON.stringify(usersByUidMap));
+      } catch(e) {}
+      syncLikesFromReviews();
       renderHeaderAuth();
       renderMain(false);
     }
@@ -309,55 +359,81 @@ function closeSyncProfileModal() {}
 // ----------------------------------------------------
 // ROBUST ONAUTHSTATECHANGED OBSERVER (INSTANT LOCAL RESOLUTION + FIRESTORE DB BIND)
 // ----------------------------------------------------
-window.addEventListener('firebase-ready', () => {
+let firebaseListenersStarted = false;
+
+function startFirebaseListeners() {
+  if (firebaseListenersStarted) return;
+  if (!window.db || !window.fb || !window.auth) return;
+  firebaseListenersStarted = true;
+
   initRealtimeUsers();
   initRealtimeFeed();
+  initAuthObserver();
+}
 
-  if (window.auth && window.fb) {
-    window.fb.onAuthStateChanged(window.auth, (user) => {
-      if (user) {
-        if (!currentUser) {
-          const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
-          const cachedByEmail = user.email ? Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase()) : null;
-          const cached = cachedByUid || cachedByEmail || (localStorage.getItem('bondibase_user') ? JSON.parse(localStorage.getItem('bondibase_user')) : null);
+window.addEventListener('firebase-ready', startFirebaseListeners);
+if (window.db && window.fb && window.auth) {
+  startFirebaseListeners();
+}
 
-          currentUser = {
-            uid: user.uid,
-            handle: (cached && cached.handle) ? cached.handle : ('@' + (user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5)))),
-            email: user.email || (cached ? cached.email : null),
-            photo: (cached && cached.photo) || user.photoURL || null,
-            bio: (cached && cached.bio) || '',
-            isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
-            usernameChangesCount: (cached && cached.usernameChangesCount) || 0,
-            following: (cached && cached.following) || []
-          };
-          try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
-          renderHeaderAuth();
-          renderMain(false);
-        } else {
-          currentUser.uid = user.uid;
-          if (user.email) currentUser.email = user.email;
-          const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
-          if (cachedByUid && cachedByUid.handle) {
-            currentUser.handle = cachedByUid.handle;
-          }
-          try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
-          renderHeaderAuth();
-        }
+function initAuthObserver() {
+  if (!window.auth || !window.fb) return;
 
-        // Direct background sync from Firestore users/{user.uid}
-        syncUserProfileFromFirestore(user);
+  window.fb.onAuthStateChanged(window.auth, (user) => {
+    if (user) {
+      if (!currentUser || currentUser.uid !== user.uid) {
+        const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
+        const cachedByEmail = user.email ? Object.values(usersMap).find(u => u && u.email && u.email.toLowerCase() === user.email.toLowerCase()) : null;
+        const storedUser = localStorage.getItem('bondibase_user') ? JSON.parse(localStorage.getItem('bondibase_user')) : null;
+        const cached = cachedByUid || (storedUser && storedUser.uid === user.uid ? storedUser : null) || cachedByEmail;
+
+        currentUser = {
+          uid: user.uid,
+          handle: (cached && cached.handle) ? cached.handle : ('@' + (user.email ? user.email.split('@')[0] : ('user_' + user.uid.substring(0, 5)))),
+          email: user.email || (cached ? cached.email : null),
+          photo: (cached && cached.photo) || user.photoURL || null,
+          bio: (cached && cached.bio != null) ? cached.bio : '',
+          isGoogleUser: user.providerData ? user.providerData.some(p => p.providerId === 'google.com') : false,
+          usernameChangesCount: (cached && cached.usernameChangesCount) || 0,
+          lastUsernameChangeDate: (cached && cached.lastUsernameChangeDate) || null,
+          following: (cached && Array.isArray(cached.following)) ? cached.following : []
+        };
+        usersByUidMap[user.uid] = currentUser;
+        usersMap[currentUser.handle] = currentUser;
+
+        try {
+          localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+          localStorage.setItem('bondibase_users_by_uid', JSON.stringify(usersByUidMap));
+        } catch(e) {}
+
+        syncLikesFromReviews();
+        renderHeaderAuth();
+        renderMain(false);
       } else {
-        const storedUser = localStorage.getItem('bondibase_user');
-        if (!storedUser) {
-          currentUser = null;
-          renderHeaderAuth();
-          renderMain(false);
+        currentUser.uid = user.uid;
+        if (user.email) currentUser.email = user.email;
+        const cachedByUid = usersByUidMap ? usersByUidMap[user.uid] : null;
+        if (cachedByUid && cachedByUid.handle) {
+          currentUser.handle = cachedByUid.handle;
         }
+        try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+        syncLikesFromReviews();
+        renderHeaderAuth();
       }
-    });
-  }
-});
+
+      // Direct background sync from Firestore users/{user.uid}
+      syncUserProfileFromFirestore(user);
+    } else {
+      const storedUser = localStorage.getItem('bondibase_user');
+      if (!storedUser) {
+        currentUser = null;
+        syncLikesFromReviews();
+        renderHeaderAuth();
+        renderMain(false);
+      }
+    }
+  });
+}
 
 // Realtime Firestore Users & Follows Listener (Mapping both handle and UID)
 function initRealtimeUsers() {
@@ -375,8 +451,9 @@ function initRealtimeUsers() {
         const handle = data.handle || docSnap.id;
         
         if (!isBlacklistedUser(handle)) {
-          remoteUsersMap[handle] = { ...data, uid: docUid };
-          remoteUsersByUid[docUid] = { ...data, handle: handle };
+          const userObj = { ...data, uid: docUid, handle: handle };
+          remoteUsersMap[handle] = userObj;
+          remoteUsersByUid[docUid] = userObj;
           newFollowsData[handle] = Array.isArray(data.following) ? data.following.filter(h => !isBlacklistedUser(h)) : [];
         }
       });
@@ -387,6 +464,7 @@ function initRealtimeUsers() {
 
       try {
         localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+        localStorage.setItem('bondibase_users_by_uid', JSON.stringify(usersByUidMap));
         localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
       } catch(e) {}
 
@@ -399,8 +477,9 @@ function initRealtimeUsers() {
         currentUser.bio = myData.bio != null ? myData.bio : currentUser.bio;
         currentUser.usernameChangesCount = myData.usernameChangesCount || 0;
         currentUser.lastUsernameChangeDate = myData.lastUsernameChangeDate || currentUser.lastUsernameChangeDate;
-        currentUser.following = myData.following || [];
+        currentUser.following = Array.isArray(myData.following) ? myData.following : [];
         try { localStorage.setItem('bondibase_user', JSON.stringify(currentUser)); } catch(e) {}
+        syncLikesFromReviews();
         renderHeaderAuth();
 
         if (!isTemporaryUserHandle(currentUser.handle)) {
@@ -442,7 +521,7 @@ function getReviewTimestamp(r) {
   return 0;
 }
 
-// Realtime Firestore Reviews & Likes Listener
+// Realtime Firestore Reviews & Likes Listener (Optimized diffing & non-blocking cache)
 function initRealtimeFeed() {
   if (!window.db || !window.fb) return;
   try {
@@ -454,25 +533,18 @@ function initRealtimeFeed() {
       
       remoteRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
       
-      const prevJson = JSON.stringify(reviewsData);
-      const nextJson = JSON.stringify(remoteRevs);
-      
       reviewsData = remoteRevs;
-      try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
-      likesData = new Set();
-      if (currentUser) {
-        reviewsData.forEach(r => {
-          if (Array.isArray(r.likedBy) && r.likedBy.includes(currentUser.handle)) {
-            likesData.add(r.id);
-          }
-        });
+      // Safe cache: store top 200 reviews in localStorage without exceeding quotas
+      try {
+        const cachedSlice = reviewsData.slice(0, 200);
+        localStorage.setItem('bondibase_reviews', JSON.stringify(cachedSlice));
+      } catch(e) {
+        console.warn("LocalStorage reviews quota reached, running in memory:", e);
       }
-      try { localStorage.setItem('bondibase_likes', JSON.stringify(Array.from(likesData))); } catch(e) {}
 
-      if (prevJson !== nextJson) {
-        renderMain(false);
-      }
+      syncLikesFromReviews();
+      renderMain(false);
     }, (err) => {
       console.warn("Firestore snapshot info:", err);
     });
@@ -481,7 +553,7 @@ function initRealtimeFeed() {
   }
 }
 
-// Image Scaler & Base64 Converter via Canvas
+// Image Scaler & Base64 Converter via Canvas (Optimized 120px max dimension & 0.7 quality for fast transfers)
 function handlePhotoUpload(input) {
   if (!input.files || !input.files[0]) return;
   const file = input.files[0];
@@ -491,7 +563,7 @@ function handlePhotoUpload(input) {
     const img = new Image();
     img.onload = function() {
       const canvas = document.createElement('canvas');
-      const maxDim = 160;
+      const maxDim = 120;
       let width = img.width;
       let height = img.height;
 
@@ -512,7 +584,7 @@ function handlePhotoUpload(input) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
 
-      uploadedPhotoBase64 = canvas.toDataURL('image/jpeg', 0.8);
+      uploadedPhotoBase64 = canvas.toDataURL('image/jpeg', 0.7);
 
       const previewImg = document.getElementById('avatarPreviewImg');
       const placeholderIcon = document.getElementById('avatarPlaceholderIcon');
@@ -543,7 +615,7 @@ function handleProfilePhotoChange(input) {
     const img = new Image();
     img.onload = async function() {
       const canvas = document.createElement('canvas');
-      const maxDim = 160;
+      const maxDim = 120;
       let width = img.width;
       let height = img.height;
 
@@ -564,9 +636,10 @@ function handleProfilePhotoChange(input) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
 
-      const newBase64 = canvas.toDataURL('image/jpeg', 0.8);
+      const newBase64 = canvas.toDataURL('image/jpeg', 0.7);
       currentUser.photo = newBase64;
       if (usersMap[currentUser.handle]) usersMap[currentUser.handle].photo = newBase64;
+      if (currentUser.uid) usersByUidMap[currentUser.uid] = usersMap[currentUser.handle];
 
       // Sync new photo to all existing reviews by this user
       reviewsData.forEach(r => {
@@ -578,7 +651,9 @@ function handleProfilePhotoChange(input) {
       try {
         localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
         localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
-        localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
+        localStorage.setItem('bondibase_users_by_uid', JSON.stringify(usersByUidMap));
+        const cachedSlice = reviewsData.slice(0, 200);
+        localStorage.setItem('bondibase_reviews', JSON.stringify(cachedSlice));
       } catch(e) {}
 
       if (window.db && window.fb) {
@@ -699,12 +774,19 @@ async function loginWithGoogle() {
       console.log("[DEBUG AUTH] Google Login Exitoso. UID:", user.uid, "Email:", user.email);
 
       closeAuthModal();
+      if (user) {
+        await syncUserProfileFromFirestore(user);
+      }
+      showToast(`¡Bienvenido ${currentUser ? currentUser.handle : ''}!`);
       return;
     } catch (err) {
       if (err.code === 'auth/credential-already-in-use') {
         console.log("[DEBUG LINK] Credencial de Google ya en uso por otra cuenta. Conectando cuenta de Google primaria...");
-        await window.fb.signInWithPopup(window.auth, window.googleProvider);
+        const res = await window.fb.signInWithPopup(window.auth, window.googleProvider);
         closeAuthModal();
+        if (res && res.user) {
+          await syncUserProfileFromFirestore(res.user);
+        }
         return;
       }
       console.warn("Popup de Google cerrado o cancelado:", err);
@@ -737,8 +819,12 @@ async function handleLoginEmailSubmit(e) {
   if (window.fb && window.auth) {
     try {
       console.log("[DEBUG AUTH] Intentando inicio de sesión por correo:", email);
-      await window.fb.signInWithEmailAndPassword(window.auth, email, password);
+      const res = await window.fb.signInWithEmailAndPassword(window.auth, email, password);
       closeAuthModal();
+      if (res && res.user) {
+        await syncUserProfileFromFirestore(res.user);
+      }
+      showToast('¡Sesión iniciada con éxito!');
       return;
     } catch (err) {
       console.warn("Firebase Auth Login error:", err);
@@ -826,6 +912,7 @@ async function handleRegisterEmailSubmit(e) {
       try {
         localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
         localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+        localStorage.setItem('bondibase_users_by_uid', JSON.stringify(usersByUidMap));
       } catch(e) {}
 
       if (window.db) {

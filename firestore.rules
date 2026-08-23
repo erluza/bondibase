@@ -44,10 +44,16 @@ service cloud.firestore {
                     && request.resource.data.userUid == request.auth.uid;
 
       allow update: if request.auth != null
-                    && resource.data.userUid == request.auth.uid
-                    // No permitir cambiar el userUid ni el id
-                    && request.resource.data.userUid == resource.data.userUid
-                    && request.resource.data.id == resource.data.id;
+                    && (
+                      // El autor original puede editar su reseña
+                      (
+                        resource.data.userUid == request.auth.uid
+                        && request.resource.data.userUid == resource.data.userUid
+                        && request.resource.data.id == resource.data.id
+                      )
+                      // O cualquier usuario autenticado puede dar / quitar Me Gusta (solo campos likes y likedBy)
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likedBy'])
+                    );
 
       allow delete: if request.auth != null
                     && resource.data.userUid == request.auth.uid;
