@@ -89,6 +89,7 @@ let authMode = 'login';
 let uploadedPhotoBase64 = null;
 let topZIndex = 300;
 let serviceAlertsMap = new Map();
+let lastReviewSubmitTime = 0;
 let serviceAlertsLoaded = false;
 
 // Spanish Months Array
@@ -912,6 +913,11 @@ async function handleUpdatePasswordDirectSubmit(e) {
     return;
   }
 
+  if (newPass.length < 6) {
+    showToast('La nueva contraseña debe tener al menos 6 caracteres');
+    return;
+  }
+
   if (window.fb && window.auth && window.auth.currentUser) {
     try {
       const user = window.auth.currentUser;
@@ -1034,6 +1040,15 @@ function esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// Escape string for use inside single-quoted JS strings in onclick HTML attributes
+function escAttr(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;');
 }
 
 function buildBg(l, topPct, botPct) {
@@ -1160,9 +1175,9 @@ function renderHeaderAuth() {
   if (currentUser) {
     const avatarHtml = renderAvatarHtml(currentUser.handle, currentUser.photo, 28);
     container.innerHTML = `
-      <div class="user-badge-btn" onclick="openUserProfile('${currentUser.handle}')" title="Ver mi perfil">
+      <div class="user-badge-btn" onclick="openUserProfile('${escAttr(currentUser.handle)}')" title="Ver mi perfil">
         ${avatarHtml}
-        <span>${currentUser.handle}</span>
+        <span>${esc(currentUser.handle)}</span>
       </div>
       <button class="btn-nav-link" onclick="logoutUser()" style="font-size:12px;">Salir</button>
     `;
@@ -1307,7 +1322,7 @@ function renderUserSearchResultFeed(container, indicator, query) {
       const userBioText = u.bio ? esc(u.bio) : '';
 
       return `
-        <div class="review-card" style="align-items:center; justify-content:space-between; cursor:pointer;" onclick="openUserProfile('${handle}')">
+        <div class="review-card" style="align-items:center; justify-content:space-between; cursor:pointer;" onclick="openUserProfile('${escAttr(handle)}')">
           <div style="display:flex; align-items:center; gap:12px;">
             ${avatarHtml}
             <div>
@@ -1447,7 +1462,7 @@ function renderReviewCardItem(r) {
   let followBtnHtml = '';
   if (!isMyOwn) {
     followBtnHtml = `
-      <button class="btn-follow ${isFollowing ? 'following' : ''}" style="font-size:11px; padding:3px 10px; margin-left:6px;" onclick="event.stopPropagation(); toggleFollowReviewAuthor('${r.userHandle}')">
+      <button class="btn-follow ${isFollowing ? 'following' : ''}" style="font-size:11px; padding:3px 10px; margin-left:6px;" onclick="event.stopPropagation(); toggleFollowReviewAuthor('${escAttr(r.userHandle)}')">
         ${isFollowing ? 'Siguiendo' : '+ Seguir'}
       </button>
     `;
@@ -1467,7 +1482,7 @@ function renderReviewCardItem(r) {
         <div>
           <div class="review-header">
             <div style="display:flex; align-items:center; gap:8px;">
-              <div class="review-user" onclick="openUserProfile('${r.userHandle}')">
+              <div class="review-user" onclick="openUserProfile('${escAttr(r.userHandle)}')">
                 ${avatarHtml}
                 <span class="review-user-name">${esc(r.userHandle)}</span>
               </div>
@@ -1506,7 +1521,8 @@ async function deleteUserReview(reviewId) {
   if (idx === -1) return;
 
   const targetRev = reviewsData[idx];
-  if (targetRev.userHandle !== currentUser.handle) {
+  const isReviewOwner = targetRev.userUid ? targetRev.userUid === currentUser.uid : targetRev.userHandle === currentUser.handle;
+  if (!isReviewOwner) {
     showToast('No tenés permiso para borrar esta reseña');
     return;
   }
@@ -1745,6 +1761,14 @@ async function submitReview() {
   }
   if (checkTemporaryUserGuard()) return;
 
+  // Rate-limiting: mínimo 5 segundos entre publicaciones
+  const nowRL = Date.now();
+  if (nowRL - lastReviewSubmitTime < 5000) {
+    showToast('Esperá unos segundos antes de publicar otra reseña');
+    return;
+  }
+  lastReviewSubmitTime = nowRL;
+
   const text = document.getElementById('reviewTextInput').value.trim();
   if (!text) {
     showToast('Por favor escribí un comentario breve sobre la línea');
@@ -1931,7 +1955,7 @@ function openUserProfile(handle) {
 
   const avatarContainer = document.getElementById('profileAvatar');
   const avatarHtml = renderAvatarHtml(handle, userData.photo, 60);
-  avatarContainer.outerHTML = `<div class="profile-avatar-large" id="profileAvatar">${avatarHtml}</div>`;
+  avatarContainer.innerHTML = avatarHtml;
 
   const userRevs = reviewsData.filter(r => r.userHandle === handle && !isBlacklistedUser(r.userHandle));
   userRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
@@ -2159,15 +2183,44 @@ async function handleUsernameEditSubmit(e) {
   currentUser.usernameChangesCount = currentCount + 1;
   currentUser.lastUsernameChangeDate = updatedUserDoc.lastUsernameChangeDate;
 
+  // Limpiar handle viejo del mapa local y registrar el nuevo
+  delete usersMap[oldHandle];
+  usersMap[newHandle] = updatedUserDoc;
+  usersByUidMap[currentUser.uid] = updatedUserDoc;
+
+  // Actualizar handle en reseñas locales
+  reviewsData.forEach(r => {
+    if (r.userHandle === oldHandle) r.userHandle = newHandle;
+  });
+
+  // Migrar followsData local al nuevo handle
+  if (followsData[oldHandle]) {
+    followsData[newHandle] = followsData[oldHandle];
+    delete followsData[oldHandle];
+  }
+  Object.keys(followsData).forEach(h => {
+    const list = followsData[h];
+    if (Array.isArray(list)) {
+      const idx = list.indexOf(oldHandle);
+      if (idx !== -1) list[idx] = newHandle;
+    }
+  });
+
+  try {
+    localStorage.setItem('bondibase_user', JSON.stringify(currentUser));
+    localStorage.setItem('bondibase_users', JSON.stringify(usersMap));
+    localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
+    localStorage.setItem('bondibase_follows', JSON.stringify(followsData));
+  } catch(e) {}
+
   if (window.db && window.fb) {
     try {
       await window.fb.setDoc(window.fb.doc(window.db, "users", currentUser.uid), updatedUserDoc, { merge: true });
 
-      reviewsData.forEach(async (r) => {
-        if (r.userHandle === oldHandle) {
-          await window.fb.updateDoc(window.fb.doc(window.db, "reviews", r.id), { userHandle: newHandle });
-        }
-      });
+      const reviewUpdates = reviewsData
+        .filter(r => r.userUid === currentUser.uid)
+        .map(r => window.fb.updateDoc(window.fb.doc(window.db, "reviews", r.id), { userHandle: newHandle }));
+      await Promise.all(reviewUpdates);
     } catch (err) {
       console.warn("Firestore rename:", err);
     }
@@ -2275,13 +2328,13 @@ function renderUserListItems() {
     let actionBtn = '';
     if (isMyOwnProfile) {
       if (activeUserListTab === 'following') {
-        actionBtn = `<button class="btn-danger-sm" onclick="unfollowTargetUser('${handle}')"><i class="fa-solid fa-user-minus"></i> Dejar de seguir</button>`;
+        actionBtn = `<button class="btn-danger-sm" onclick="unfollowTargetUser('${escAttr(handle)}')"><i class="fa-solid fa-user-minus"></i> Dejar de seguir</button>`;
       } else if (activeUserListTab === 'followers') {
-        actionBtn = `<button class="btn-danger-sm" onclick="removeFollowerUser('${handle}')"><i class="fa-solid fa-user-xmark"></i> Eliminar seguidor</button>`;
+        actionBtn = `<button class="btn-danger-sm" onclick="removeFollowerUser('${escAttr(handle)}')"><i class="fa-solid fa-user-xmark"></i> Eliminar seguidor</button>`;
       }
     } else {
       if (currentUser && currentUser.handle !== handle) {
-        actionBtn = `<button class="btn-follow ${iFollowThem ? 'following' : ''}" onclick="toggleFollowOtherUser('${handle}')">
+        actionBtn = `<button class="btn-follow ${iFollowThem ? 'following' : ''}" onclick="toggleFollowOtherUser('${escAttr(handle)}')">
           ${iFollowThem ? 'Siguiendo' : '+ Seguir'}
         </button>`;
       }
@@ -2289,7 +2342,7 @@ function renderUserListItems() {
 
     return `
       <div class="review-card" style="align-items:center; justify-content:space-between; padding:12px 14px;">
-        <div style="display:flex; align-items:center; gap:12px; cursor:pointer;" onclick="openUserProfile('${handle}')">
+        <div style="display:flex; align-items:center; gap:12px; cursor:pointer;" onclick="openUserProfile('${escAttr(handle)}')">
           ${avatarHtml}
           <div>
             <div style="font-weight:700; font-size:14px; color:#fff;">${esc(handle)}</div>
@@ -2297,7 +2350,7 @@ function renderUserListItems() {
         </div>
         <div style="display:flex; gap:8px;">
           ${actionBtn}
-          <button class="btn-nav-link" style="font-size:12px; padding:4px 8px;" onclick="openUserProfile('${handle}')">Ver perfil</button>
+          <button class="btn-nav-link" style="font-size:12px; padding:4px 8px;" onclick="openUserProfile('${escAttr(handle)}')">Ver perfil</button>
         </div>
       </div>
     `;
@@ -2382,7 +2435,7 @@ function showToast(msg) {
   const container = document.getElementById('toastContainer');
   const toast = document.createElement('div');
   toast.className = 'toast-notice';
-  toast.innerHTML = `<i class="fa-solid fa-bus-simple" style="color:var(--accent-blue);"></i> <span>${msg}</span>`;
+  toast.innerHTML = `<i class="fa-solid fa-bus-simple" style="color:var(--accent-blue);"></i> <span>${esc(msg)}</span>`;
   container.appendChild(toast);
 
   setTimeout(() => {

@@ -1,0 +1,62 @@
+// ============================================================
+// FIRESTORE SECURITY RULES — Bondibase
+// ============================================================
+// IMPORTANTE: Copiá estas reglas en la consola de Firebase:
+// Firebase Console → Firestore Database → Reglas
+//
+// Estas reglas protegen la base de datos para que:
+// - Cualquier persona pueda LEER datos (la app es pública)
+// - Solo usuarios autenticados puedan CREAR contenido
+// - Solo el dueño de un documento pueda MODIFICARLO o BORRARLO
+// - Los campos críticos no puedan ser manipulados
+// ============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── USUARIOS ──
+    // Lectura pública (perfiles visibles para todos)
+    // Escritura solo por el dueño del documento (uid == userId)
+    match /users/{userId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+                    && request.auth.uid == userId;
+
+      allow update: if request.auth != null
+                    && request.auth.uid == userId
+                    // No permitir cambiar el uid propio
+                    && request.resource.data.uid == resource.data.uid;
+
+      allow delete: if request.auth != null
+                    && request.auth.uid == userId;
+    }
+
+    // ── RESEÑAS ──
+    // Lectura pública (feed comunitario)
+    // Crear solo si está autenticado y el userUid coincide
+    // Editar/borrar solo el autor original
+    match /reviews/{reviewId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+                    && request.resource.data.userUid == request.auth.uid;
+
+      allow update: if request.auth != null
+                    && resource.data.userUid == request.auth.uid
+                    // No permitir cambiar el userUid ni el id
+                    && request.resource.data.userUid == resource.data.userUid
+                    && request.resource.data.id == resource.data.id;
+
+      allow delete: if request.auth != null
+                    && resource.data.userUid == request.auth.uid;
+    }
+
+    // ── BLOQUEAR TODO LO DEMÁS ──
+    // Cualquier colección no definida arriba queda bloqueada
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
