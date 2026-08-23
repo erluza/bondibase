@@ -91,6 +91,8 @@ let topZIndex = 300;
 let serviceAlertsMap = new Map();
 let lastReviewSubmitTime = 0;
 let serviceAlertsLoaded = false;
+let activeFeedMode = 'para-ti'; // 'para-ti' | 'siguiendo'
+let visibleFeedLimit = 15; // 15 reviews initial limit
 
 // Spanish Months Array
 const MESES = [
@@ -1205,6 +1207,7 @@ function renderHeaderAuth() {
 
 function switchTab(tabName) {
   activeTab = tabName;
+  visibleFeedLimit = 15; // Reset limit back to 15 on main tab change
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
   const targetBtn = document.getElementById('tab-' + tabName);
   if (targetBtn) targetBtn.classList.add('active');
@@ -1391,17 +1394,82 @@ function getFilteredAndSortedLines() {
   return items;
 }
 
-// Render Community Feed (Reverse Chronological Order)
+// Twitter/X Feed Mode Switcher
+function switchFeedMode(mode) {
+  const myHandle = currentUser ? currentUser.handle : null;
+  const myFollows = myHandle ? (followsData[myHandle] || []) : [];
+
+  if (mode === 'siguiendo') {
+    if (!currentUser) {
+      showToast('Debés iniciar sesión para ver publicaciones de tus seguidos');
+      openAuthModal('login');
+      return;
+    }
+    if (myFollows.length === 0) {
+      showToast('Todavía no seguís a nadie. Te mostramos las recomendaciones en "Para ti".');
+      activeFeedMode = 'para-ti';
+      visibleFeedLimit = 15;
+      renderFeedModeTabsUI();
+      renderMain(false);
+      return;
+    }
+  }
+
+  activeFeedMode = mode;
+  visibleFeedLimit = 15;
+  renderFeedModeTabsUI();
+  renderMain(false);
+}
+
+function renderFeedModeTabsUI() {
+  const tabParaTi = document.getElementById('feedTabParaTi');
+  const tabSiguiendo = document.getElementById('feedTabSiguiendo');
+  const feedModeTabs = document.getElementById('feedModeTabs');
+  const searchVal = document.getElementById('searchInput') ? document.getElementById('searchInput').value.trim() : '';
+
+  if (!feedModeTabs) return;
+
+  if (activeTab === 'feed' && !searchVal) {
+    feedModeTabs.style.display = 'flex';
+  } else {
+    feedModeTabs.style.display = 'none';
+  }
+
+  if (tabParaTi && tabSiguiendo) {
+    if (activeFeedMode === 'siguiendo') {
+      tabParaTi.classList.remove('active');
+      tabSiguiendo.classList.add('active');
+    } else {
+      tabSiguiendo.classList.remove('active');
+      tabParaTi.classList.add('active');
+    }
+  }
+}
+
+function loadMoreFeedReviews() {
+  visibleFeedLimit += 15;
+  renderMain(false);
+}
+
+// Render Community Feed (Reverse Chronological Order with Dual Modes & Pagination)
 function renderCommunityFeed(container, indicator) {
   const myHandle = currentUser ? currentUser.handle : null;
   const myFollows = myHandle ? (followsData[myHandle] || []) : [];
 
-  let html = '';
+  renderFeedModeTabsUI();
+
   const validRevs = reviewsData.filter(r => !isBlacklistedReview(r));
   validRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
+  let targetRevs = validRevs;
+  if (activeFeedMode === 'siguiendo' && myFollows.length > 0) {
+    targetRevs = validRevs.filter(r => myFollows.includes(r.userHandle) || (currentUser && r.userHandle === currentUser.handle));
+  }
+
+  let html = '';
+
   if (!currentUser || myFollows.length === 0) {
-    indicator.textContent = `Explorá las reseñas más recientes de la comunidad`;
+    indicator.textContent = `Explorá las reseñas más recientes de la comunidad (${targetRevs.length} en total)`;
     html += `
       <div class="feed-recommendation-notice">
         <i class="fa-solid fa-compass" style="font-size:20px; color:var(--accent-blue);"></i>
@@ -1411,19 +1479,36 @@ function renderCommunityFeed(container, indicator) {
         </div>
       </div>
     `;
-
-    if (validRevs.length === 0) {
-      html += `<div style="text-align:center; padding:40px; color:var(--text-muted);">Aún no hay reseñas publicadas en la comunidad. Sé el primero en calificar una línea en la pestaña Líneas.</div>`;
-      container.innerHTML = html;
-      return;
-    }
-
-    const recs = validRevs.slice(0, 10);
-    html += recs.map(r => renderReviewCardItem(r)).join('');
-
   } else {
-    indicator.textContent = `Mostrando reseñas recientes de los usuarios que seguís y la comunidad`;
-    html += validRevs.map(r => renderReviewCardItem(r)).join('');
+    if (activeFeedMode === 'siguiendo') {
+      indicator.textContent = `Mostrando publicaciones de tus seguidos (${targetRevs.length} en total)`;
+    } else {
+      indicator.textContent = `Mostrando reseñas recientes de toda la comunidad (${targetRevs.length} en total)`;
+    }
+  }
+
+  if (targetRevs.length === 0) {
+    html += `<div style="text-align:center; padding:40px; color:var(--text-muted);">No hay publicaciones para mostrar en esta sección.</div>`;
+    container.innerHTML = html;
+    return;
+  }
+
+  const visibleRevs = targetRevs.slice(0, visibleFeedLimit);
+  html += visibleRevs.map(r => renderReviewCardItem(r)).join('');
+
+  if (targetRevs.length > visibleFeedLimit) {
+    const remaining = targetRevs.length - visibleFeedLimit;
+    html += `
+      <div style="text-align:center; margin:28px 0 16px 0;">
+        <button class="btn-load-more" onclick="loadMoreFeedReviews()">
+          <span>Cargar más reseñas (${remaining} más)</span>
+          <i class="fa-solid fa-chevron-down" style="font-size:12px;"></i>
+        </button>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+          Mostrando ${visibleRevs.length} de ${targetRevs.length} publicaciones
+        </div>
+      </div>
+    `;
   }
 
   container.innerHTML = html;

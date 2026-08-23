@@ -106,6 +106,18 @@
     <!-- Real-time Service Status Banner (Green if normal, Yellow if alerts) -->
     <div class="service-status-banner" id="serviceStatusBanner" style="display:none;"></div>
 
+    <!-- Twitter/X-Style Feed Mode Switcher (Para ti vs Siguiendo) -->
+    <div class="feed-mode-tabs" id="feedModeTabs">
+      <button class="feed-mode-tab active" id="feedTabParaTi" onclick="switchFeedMode('para-ti')">
+        <span>Para ti</span>
+        <div class="feed-mode-indicator"></div>
+      </button>
+      <button class="feed-mode-tab" id="feedTabSiguiendo" onclick="switchFeedMode('siguiendo')">
+        <span>Siguiendo</span>
+        <div class="feed-mode-indicator"></div>
+      </button>
+    </div>
+
     <!-- Feed View of Reviews (Default Tab) -->
     <div class="feed-container tab-fade-in" id="feedContainer"></div>
 
