@@ -1441,16 +1441,25 @@ function loadMoreFeedReviews() {
 // Render Community Feed (Reverse Chronological Order with Dual Modes & Pagination)
 function renderCommunityFeed(container, indicator) {
   const myHandle = currentUser ? currentUser.handle : null;
-  const myFollows = myHandle ? (followsData[myHandle] || []) : [];
+  const rawFollows = myHandle ? (followsData[myHandle] || (currentUser && Array.isArray(currentUser.following) ? currentUser.following : [])) : [];
+  const myFollows = Array.isArray(rawFollows) ? rawFollows.filter(h => !isBlacklistedUser(h)) : [];
 
   renderFeedModeTabsUI();
 
   const validRevs = reviewsData.filter(r => !isBlacklistedReview(r));
   validRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
-  let targetRevs = validRevs; // "Para ti" ALWAYS shows all reviews from everyone
+  let targetRevs = validRevs; // "Para ti" ALWAYS shows ALL reviews from everyone in the community
+
   if (activeFeedMode === 'siguiendo') {
-    targetRevs = validRevs.filter(r => myFollows.includes(r.userHandle) || (currentUser && r.userHandle === currentUser.handle));
+    // "Siguiendo" mode ONLY shows reviews from followed users and current user (case-insensitive)
+    const followsSet = new Set(myFollows.map(h => String(h).toLowerCase()));
+    if (myHandle) followsSet.add(String(myHandle).toLowerCase());
+
+    targetRevs = validRevs.filter(r => {
+      if (!r || !r.userHandle) return false;
+      return followsSet.has(String(r.userHandle).toLowerCase());
+    });
   }
 
   let html = '';
