@@ -124,6 +124,11 @@ function checkShutdownGeneral() {
 // Memoized Line Stats Cache for O(1) Instant Calculations
 let lineStatsMap = new Map();
 
+function getNormalizedLineKey(num) {
+  if (num == null) return '';
+  return String(num).trim().toLowerCase();
+}
+
 function recalculateLineStatsMap() {
   const counts = new Map();
   const sums = new Map();
@@ -131,9 +136,8 @@ function recalculateLineStatsMap() {
   for (let i = 0; i < reviewsData.length; i++) {
     const r = reviewsData[i];
     if (!r || isBlacklistedUser(r.userHandle)) continue;
-    const num = r.lineaNumero;
-    if (!num && num !== 0) continue;
-    const key = String(num);
+    const key = getNormalizedLineKey(r.lineaNumero);
+    if (!key) continue;
     const stars = typeof r.stars === 'number' ? r.stars : (parseFloat(r.stars) || 5);
     counts.set(key, (counts.get(key) || 0) + 1);
     sums.set(key, (sums.get(key) || 0) + stars);
@@ -152,8 +156,8 @@ function recalculateLineStatsMap() {
 }
 
 function getLineStats(lineaNumero) {
-  if (!lineaNumero && lineaNumero !== 0) return { avg: 0, count: 0 };
-  const key = String(lineaNumero);
+  const key = getNormalizedLineKey(lineaNumero);
+  if (!key) return { avg: 0, count: 0 };
   return lineStatsMap.get(key) || { avg: 0, count: 0 };
 }
 
@@ -698,7 +702,7 @@ function getReviewTimestamp(r) {
   return 0;
 }
 
-// Realtime Firestore Reviews & Likes Listener (Constrained query for massive read savings)
+// Realtime Firestore Reviews & Likes Listener (Full sync for all lines & ratings)
 function initRealtimeFeed() {
   if (!window.db || !window.fb) return;
   if (unsubscribeFeedListener) {
@@ -706,47 +710,33 @@ function initRealtimeFeed() {
     unsubscribeFeedListener = null;
   }
 
-  const handleSnapshot = (snapshot) => {
-    const remoteRevs = snapshot.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(r => !isBlacklistedReview(r));
-
-    if (snapshot.docs.length > 0) {
-      lastVisibleFeedDoc = snapshot.docs[snapshot.docs.length - 1];
-    }
-
-    const revMap = new Map();
-    // Keep any line/user specific reviews loaded in memory
-    reviewsData.forEach(r => { if (r && r.id) revMap.set(r.id, r); });
-    // Overwrite/add latest real-time reviews
-    remoteRevs.forEach(r => { if (r && r.id) revMap.set(r.id, r); });
-
-    reviewsData = Array.from(revMap.values());
-    reviewsData.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
-
-    recalculateLineStatsMap();
-
-    try {
-      const cachedSlice = reviewsData.slice(0, 150);
-      localStorage.setItem('bondibase_reviews', JSON.stringify(cachedSlice));
-    } catch(e) {}
-
-    syncLikesFromReviews();
-    renderMain(false);
-  };
-
   try {
-    const q = window.fb.query(
-      window.fb.collection(window.db, "reviews"),
-      window.fb.orderBy("timestamp", "desc"),
-      window.fb.limit(40)
-    );
-    unsubscribeFeedListener = window.fb.onSnapshot(q, handleSnapshot, (err) => {
-      console.warn("Realtime feed query error, fallback:", err);
-      window.fb.onSnapshot(window.fb.collection(window.db, "reviews"), handleSnapshot);
+    const colRef = window.fb.collection(window.db, "reviews");
+    unsubscribeFeedListener = window.fb.onSnapshot(colRef, (snapshot) => {
+      const remoteRevs = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => !isBlacklistedReview(r));
+
+      remoteRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
+      reviewsData = remoteRevs;
+
+      recalculateLineStatsMap();
+
+      try {
+        localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData));
+      } catch(e) {
+        try {
+          localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData.slice(0, 300)));
+        } catch(e2) {}
+      }
+
+      syncLikesFromReviews();
+      renderMain(false);
+    }, (err) => {
+      console.warn("Firestore reviews sync error:", err);
     });
   } catch (e) {
-    console.warn("Realtime feed init error:", e);
+    console.warn("Firestore reviews init error:", e);
   }
 }
 
@@ -1711,41 +1701,8 @@ function renderFeedModeTabsUI() {
   }
 }
 
-async function loadMoreFeedReviews() {
+function loadMoreFeedReviews() {
   visibleFeedLimit += 15;
-
-  if (reviewsData.length < visibleFeedLimit + 10 && lastVisibleFeedDoc && !isFetchingMoreReviews && window.db && window.fb) {
-    isFetchingMoreReviews = true;
-    try {
-      const nextQ = window.fb.query(
-        window.fb.collection(window.db, "reviews"),
-        window.fb.orderBy("timestamp", "desc"),
-        window.fb.startAfter(lastVisibleFeedDoc),
-        window.fb.limit(30)
-      );
-      const snap = await window.fb.getDocs(nextQ);
-      if (!snap.empty) {
-        lastVisibleFeedDoc = snap.docs[snap.docs.length - 1];
-        const revMap = new Map();
-        reviewsData.forEach(r => { if (r && r.id) revMap.set(r.id, r); });
-        snap.docs.forEach(d => {
-          const r = { id: d.id, ...d.data() };
-          if (!isBlacklistedReview(r)) revMap.set(r.id, r);
-        });
-        reviewsData = Array.from(revMap.values());
-        reviewsData.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
-        recalculateLineStatsMap();
-        syncLikesFromReviews();
-      } else {
-        lastVisibleFeedDoc = null;
-      }
-    } catch (err) {
-      console.warn("Load more reviews error:", err);
-    } finally {
-      isFetchingMoreReviews = false;
-    }
-  }
-
   renderMain(false);
 }
 
