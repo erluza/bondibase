@@ -59,6 +59,14 @@ service cloud.firestore {
                     && resource.data.userUid == request.auth.uid;
     }
 
+    // ── ESTADÍSTICAS GLOBALES DE LÍNEAS ──
+    // Lectura pública para que todos vean promedios y contadores con 1 sola lectura
+    // Escritura por usuarios autenticados al publicar o editar reseñas
+    match /stats/{statDoc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
     // ── BLOQUEAR TODO LO DEMÁS ──
     // Cualquier colección no definida arriba queda bloqueada
     match /{document=**} {
