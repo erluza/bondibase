@@ -270,6 +270,7 @@ function initApp() {
 // ----------------------------------------------------
 // REAL-TIME TRANSIT SERVICE ALERTS ENGINE (CiudadDeBondis / PDB API)
 // ----------------------------------------------------
+const PDB_API_KEY = "61f2e4c37e7166cea596823f77cc85c746fd2cfadae00fc73125aa9c13a1ce49";
 let lastAlertsFetchTime = 0;
 async function fetchServiceAlerts(force = false) {
   const now = Date.now();
@@ -279,16 +280,28 @@ async function fetchServiceAlerts(force = false) {
   lastAlertsFetchTime = now;
 
   try {
-    const res = await fetch("https://api.ciudaddebondis.com.ar/api/alerts/pdb", { cache: "no-cache" });
+    const res = await fetch("https://api.ciudaddebondis.com.ar/api/alerts/bondibase", {
+      headers: {
+        Accept: "application/json",
+        "X-Api-Key": PDB_API_KEY,
+      },
+      cache: "no-cache",
+    });
+    if (res.status === 401 || res.status === 403) {
+      console.warn("Alertas del servicio: API key inválida o revocada.", res.status);
+      serviceAlertsLoaded = true;
+      renderServiceStatusNotice();
+      return;
+    }
     if (!res.ok) throw new Error("Error obteniendo alertas");
     const json = await res.json();
     const data = json.data || [];
 
     serviceAlertsMap.clear();
     data.forEach(alerta => {
-      if (alerta.active && Array.isArray(alerta.lines_slugs)) {
-        alerta.lines_slugs.forEach(slug => {
-          const num = parseInt(slug, 10);
+      if (Array.isArray(alerta.lines)) {
+        alerta.lines.forEach(line => {
+          const num = parseInt(line.number, 10);
           if (!isNaN(num)) {
             const keyStr = String(num);
             if (!serviceAlertsMap.has(keyStr)) {
