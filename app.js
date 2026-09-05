@@ -555,9 +555,17 @@ function initRealtimeLineStats() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const linesObj = data.lines || {};
+        const lineKeys = Object.keys(linesObj);
+
+        // If lines_summary exists but has fewer than 10 lines (incomplete or truncated), trigger self-healing sync
+        if (lineKeys.length < 10) {
+          console.log("[STATS] Document stats/lines_summary is incomplete (" + lineKeys.length + " lines). Running self-healing sync pass...");
+          syncAndSeedLinesSummaryDoc();
+          return;
+        }
+
         const newMap = new Map();
-        
-        Object.keys(linesObj).forEach(lineNum => {
+        lineKeys.forEach(lineNum => {
           const st = linesObj[lineNum];
           if (st) {
             const count = parseInt(st.count, 10) || 0;
@@ -2145,12 +2153,17 @@ async function deleteUserReview(reviewId) {
     } catch(e) {}
 
     if (window.db && window.fb) {
-      window.fb.setDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
+      window.fb.updateDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
         updatedAt: Date.now(),
-        lines: {
-          [lineKey]: currentStat
-        }
-      }, { merge: true }).catch(e => console.warn(e));
+        [`lines.${lineKey}`]: currentStat
+      }).catch(() => {
+        const plainObj = {};
+        lineStatsMap.forEach((val, k) => { plainObj[k] = val; });
+        window.fb.setDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
+          updatedAt: Date.now(),
+          lines: plainObj
+        }, { merge: true }).catch(e => console.warn(e));
+      });
     }
   }
 
@@ -2454,12 +2467,17 @@ async function submitReview() {
   if (window.db && window.fb) {
     try {
       await window.fb.setDoc(window.fb.doc(window.db, "reviews", docId), reviewDoc);
-      await window.fb.setDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
+      await window.fb.updateDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
         updatedAt: Date.now(),
-        lines: {
-          [lineKey]: currentStat
-        }
-      }, { merge: true });
+        [`lines.${lineKey}`]: currentStat
+      }).catch(async () => {
+        const plainObj = {};
+        lineStatsMap.forEach((val, k) => { plainObj[k] = val; });
+        await window.fb.setDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
+          updatedAt: Date.now(),
+          lines: plainObj
+        }, { merge: true });
+      });
     } catch (e) {
       console.warn("Firestore sync:", e);
     }
