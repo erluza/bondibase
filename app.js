@@ -160,13 +160,27 @@ function getLineStats(lineaNumero) {
   const key = getNormalizedLineKey(lineaNumero);
   if (!key) return { avg: '0', count: 0, sum: 0 };
   const found = lineStatsMap.get(key);
-  if (found) {
+  if (found && (found.count > 0 || found.sum > 0)) {
     return {
       avg: found.avg != null ? String(found.avg) : (found.count > 0 ? (found.sum / found.count).toFixed(1) : '0'),
       count: found.count || 0,
       sum: found.sum || 0
     };
   }
+
+  // Fallback: If lineStatsMap doesn't have it or has 0, calculate directly from reviewsData
+  if (Array.isArray(reviewsData) && reviewsData.length > 0) {
+    const lineRevs = reviewsData.filter(r => r && getNormalizedLineKey(r.lineaNumero) === key && !isBlacklistedUser(r.userHandle));
+    if (lineRevs.length > 0) {
+      const sum = lineRevs.reduce((acc, r) => acc + (typeof r.stars === 'number' ? r.stars : (parseFloat(r.stars) || 5)), 0);
+      const count = lineRevs.length;
+      const avg = (sum / count).toFixed(1);
+      const computed = { avg, count, sum };
+      lineStatsMap.set(key, computed);
+      return computed;
+    }
+  }
+
   return { avg: '0', count: 0, sum: 0 };
 }
 
@@ -575,10 +589,8 @@ function initRealtimeLineStats() {
       }
     }, (err) => {
       console.warn("Realtime line stats listener:", err);
-      // Fallback: calculate from memory reviews if error occurs
-      if (reviewsData.length > 0) {
-        recalculateLineStatsMap();
-      }
+      // Fallback: If stats/lines_summary doc has permission error or fails, read reviews and populate lineStatsMap locally
+      syncAndSeedLinesSummaryDoc();
     });
   } catch (e) {
     console.warn("initRealtimeLineStats error:", e);
@@ -593,10 +605,12 @@ async function syncAndSeedLinesSummaryDoc() {
     const snap = await window.fb.getDocs(window.fb.collection(window.db, "reviews"));
     const counts = new Map();
     const sums = new Map();
+    const allRevs = [];
 
     snap.docs.forEach(docSnap => {
-      const r = docSnap.data();
+      const r = { id: docSnap.id, ...docSnap.data() };
       if (!r || isBlacklistedUser(r.userHandle)) return;
+      allRevs.push(r);
       const key = getNormalizedLineKey(r.lineaNumero);
       if (!key) return;
       const stars = typeof r.stars === 'number' ? r.stars : (parseFloat(r.stars) || 5);
@@ -612,19 +626,41 @@ async function syncAndSeedLinesSummaryDoc() {
       lineStatsMap.set(key, { avg, count, sum });
     });
 
+    // Merge into reviewsData if it was empty or smaller
+    if (allRevs.length > reviewsData.length) {
+      const revMap = new Map();
+      reviewsData.forEach(r => { if (r && r.id) revMap.set(r.id, r); });
+      allRevs.forEach(r => { if (r && r.id) revMap.set(r.id, r); });
+      reviewsData = Array.from(revMap.values());
+      reviewsData.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
+      try {
+        localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData.slice(0, 150)));
+      } catch(e) {}
+    }
+
     try {
       localStorage.setItem('bondibase_lines_summary', JSON.stringify(linesObj));
     } catch(e) {}
 
-    await window.fb.setDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
-      updatedAt: Date.now(),
-      lines: linesObj
-    }, { merge: true });
-
-    console.log("[STATS] Successfully seeded stats/lines_summary to Firestore!");
+    // Immediately render so user sees stats right away
     renderMain(false);
+
+    // Save to Firestore in background (non-blocking)
+    try {
+      await window.fb.setDoc(window.fb.doc(window.db, "stats", "lines_summary"), {
+        updatedAt: Date.now(),
+        lines: linesObj
+      }, { merge: true });
+      console.log("[STATS] Successfully seeded stats/lines_summary to Firestore!");
+    } catch(saveErr) {
+      console.warn("[STATS] Remote stats write skipped:", saveErr.message || saveErr);
+    }
   } catch (err) {
     console.warn("[STATS] Seed error:", err);
+    if (reviewsData.length > 0) {
+      recalculateLineStatsMap();
+      renderMain(false);
+    }
   } finally {
     isSeedingStats = false;
   }
@@ -677,9 +713,12 @@ async function fetchLineReviewsOnDemand(lineaNumero) {
   fetchedLinesSet.add(lineKey);
 
   try {
+    const numInt = parseInt(lineaNumero, 10);
+    const lineQueryValues = !isNaN(numInt) ? [String(lineaNumero), numInt] : [String(lineaNumero)];
+
     const q = window.fb.query(
       window.fb.collection(window.db, "reviews"),
-      window.fb.where("lineaNumero", "==", lineaNumero),
+      window.fb.where("lineaNumero", "in", lineQueryValues),
       window.fb.limit(50)
     );
     const snap = await window.fb.getDocs(q);
@@ -694,6 +733,15 @@ async function fetchLineReviewsOnDemand(lineaNumero) {
       reviewsData.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
       syncLikesFromReviews();
 
+      // Recalculate stats for THIS line immediately and update lineStatsMap
+      const lineRevs = reviewsData.filter(r => getNormalizedLineKey(r.lineaNumero) === lineKey && !isBlacklistedUser(r.userHandle));
+      if (lineRevs.length > 0) {
+        const sum = lineRevs.reduce((acc, r) => acc + (typeof r.stars === 'number' ? r.stars : (parseFloat(r.stars) || 5)), 0);
+        const count = lineRevs.length;
+        const avg = (sum / count).toFixed(1);
+        lineStatsMap.set(lineKey, { avg, count, sum });
+      }
+
       if (currentModalLine && getNormalizedLineKey(currentModalLine.numero) === lineKey) {
         renderLineReviewsList(lineaNumero);
         const stats = getLineStats(lineaNumero);
@@ -701,11 +749,10 @@ async function fetchLineReviewsOnDemand(lineaNumero) {
         const starsEl = document.getElementById('pModalRatingStars');
         const countEl = document.getElementById('pModalTotalReviewsCount');
         if (avgEl) avgEl.textContent = `${stats.avg} ★`;
-        if (starsEl) starsEl.innerHTML = renderStarsHtml(Math.round(stats.avg));
+        if (starsEl) starsEl.innerHTML = renderStarsHtml(Math.round(parseFloat(stats.avg) || 0));
         if (countEl) countEl.textContent = `${stats.count} reseña${stats.count === 1 ? '' : 's'} en Bondibase`;
         const pHistContainer = document.getElementById('pModalHistogramArea');
         if (pHistContainer) {
-          const lineRevs = reviewsData.filter(r => getNormalizedLineKey(r.lineaNumero) === lineKey && !isBlacklistedUser(r.userHandle));
           pHistContainer.innerHTML = renderRatingHistogramHtml(lineRevs, 'DISTRIBUCIÓN DE CALIFICACIONES DE LA LÍNEA');
         }
       }
@@ -2206,9 +2253,10 @@ function showPoster(idx) {
   adminTag.textContent = l.administracion;
   adminTag.className = 'tag ' + l.administracion;
 
+  const lineKey = getNormalizedLineKey(l.numero);
   const stats = getLineStats(l.numero);
   document.getElementById('pModalAvgStars').textContent = `${stats.avg} ★`;
-  document.getElementById('pModalRatingStars').innerHTML = renderStarsHtml(Math.round(stats.avg));
+  document.getElementById('pModalRatingStars').innerHTML = renderStarsHtml(Math.round(parseFloat(stats.avg) || 0));
   document.getElementById('pModalTotalReviewsCount').textContent = `${stats.count} reseña${stats.count === 1 ? '' : 's'} en Bondibase`;
 
   // Transporte Ya Direct Integration Link
@@ -2229,7 +2277,7 @@ function showPoster(idx) {
   }
 
   if (currentUser) {
-    const existing = reviewsData.find(r => r.lineaNumero === l.numero && r.userHandle === currentUser.handle);
+    const existing = reviewsData.find(r => getNormalizedLineKey(r.lineaNumero) === lineKey && r.userHandle === currentUser.handle);
     if (existing) {
       setFormStars(existing.stars);
       document.getElementById('reviewTextInput').value = existing.text;
@@ -2245,7 +2293,7 @@ function showPoster(idx) {
   renderLineReviewsList(l.numero);
 
   // Populate Letterboxd-style Rating Distribution Histogram Chart
-  const lineRevs = reviewsData.filter(r => r.lineaNumero === l.numero && !isBlacklistedUser(r.userHandle));
+  const lineRevs = reviewsData.filter(r => getNormalizedLineKey(r.lineaNumero) === lineKey && !isBlacklistedUser(r.userHandle));
   const pHistContainer = document.getElementById('pModalHistogramArea');
   if (pHistContainer) {
     pHistContainer.innerHTML = renderRatingHistogramHtml(lineRevs, 'DISTRIBUCIÓN DE CALIFICACIONES DE LA LÍNEA');
@@ -2351,7 +2399,8 @@ async function submitReview() {
     return;
   }
 
-  const existing = reviewsData.find(r => r.lineaNumero === currentModalLine.numero && r.userHandle === currentUser.handle);
+  const lineKey = getNormalizedLineKey(currentModalLine.numero);
+  const existing = reviewsData.find(r => getNormalizedLineKey(r.lineaNumero) === lineKey && r.userHandle === currentUser.handle);
   const docId = existing ? existing.id : ('rev-' + Date.now());
   const oldLikes = existing ? (existing.likes || 0) : 0;
   const oldLikedBy = existing ? (existing.likedBy || []) : [];
@@ -2382,7 +2431,6 @@ async function submitReview() {
   try { localStorage.setItem('bondibase_reviews', JSON.stringify(reviewsData)); } catch(e) {}
 
   // Update lineStatsMap in memory and update stats/lines_summary in Firestore
-  const lineKey = getNormalizedLineKey(currentModalLine.numero);
   let currentStat = lineStatsMap.get(lineKey) || { avg: '0', count: 0, sum: 0 };
 
   if (existing) {
@@ -2425,7 +2473,7 @@ async function submitReview() {
 
   const stats = getLineStats(currentModalLine.numero);
   document.getElementById('pModalAvgStars').textContent = `${stats.avg} ★`;
-  document.getElementById('pModalRatingStars').innerHTML = renderStarsHtml(Math.round(stats.avg));
+  document.getElementById('pModalRatingStars').innerHTML = renderStarsHtml(Math.round(parseFloat(stats.avg) || 0));
   document.getElementById('pModalTotalReviewsCount').textContent = `${stats.count} reseña${stats.count === 1 ? '' : 's'} en Bondibase`;
 
   renderLineReviewsList(currentModalLine.numero);
@@ -2434,7 +2482,8 @@ async function submitReview() {
 
 function renderLineReviewsList(lineaNumero) {
   const container = document.getElementById('lineReviewsList');
-  const lineRevs = reviewsData.filter(r => r.lineaNumero === lineaNumero && !isBlacklistedUser(r.userHandle));
+  const targetKey = getNormalizedLineKey(lineaNumero);
+  const lineRevs = reviewsData.filter(r => getNormalizedLineKey(r.lineaNumero) === targetKey && !isBlacklistedUser(r.userHandle));
   lineRevs.sort((a, b) => getReviewTimestamp(b) - getReviewTimestamp(a));
 
   if (lineRevs.length === 0) {
